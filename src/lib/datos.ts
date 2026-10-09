@@ -45,7 +45,7 @@ export type Rutina = {
   comentarios: { fecha: string; texto: string }[]
 }
 
-export type TipoMemoria = 'objetivo' | 'preferencia' | 'rutina_aceptada' | 'rutina_rechazada' | 'funciona' | 'no_funciona' | 'correccion'
+export type TipoMemoria = 'objetivo' | 'preferencia' | 'rutina_aceptada' | 'rutina_rechazada' | 'funciona' | 'no_funciona' | 'correccion' | 'consejo'
 
 export type Memoria = {
   id: string

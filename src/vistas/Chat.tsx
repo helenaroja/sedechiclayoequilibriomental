@@ -103,6 +103,14 @@ function Chat({ estado, actualizar, ir }: Props) {
           creada: new Date().toISOString(),
           fuente: 'chat' as const,
         })),
+        ...respuesta.datos.consejosDados.map((c) => ({
+          id: nuevoId(),
+          usuarioId: e.usuarioId,
+          tipo: 'consejo' as TipoMemoria,
+          texto: `Ya se le sugirió: ${c}`,
+          creada: new Date().toISOString(),
+          fuente: 'chat' as const,
+        })),
       ],
     }))
     setGuardado(nuevas.map((m) => m.texto))

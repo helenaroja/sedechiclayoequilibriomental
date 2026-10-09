@@ -10,6 +10,7 @@ const ETIQUETAS_TIPO: Record<Memoria['tipo'], string> = {
   funciona: 'Le funcionó',
   no_funciona: 'No le funcionó',
   correccion: 'Corrección',
+  consejo: 'Consejo ya dado',
 }
 
 function Privacidad({ estado, actualizar }: Props) {

@@ -1,9 +1,12 @@
-export type ConfigIA = { apiKey?: string; model?: string; timeoutMs?: number }
+export type ConfigIA = { apiKey?: string; model?: string; timeoutMs?: number; inicio?: number }
 
 export type CodigoError =
   | 'solicitud_invalida'
   | 'sin_clave'
+  | 'clave_formato'
   | 'clave_invalida'
+  | 'permisos'
+  | 'facturacion'
   | 'modelo_no_disponible'
   | 'solicitud_rechazada'
   | 'limite_de_uso'
@@ -11,14 +14,27 @@ export type CodigoError =
   | 'tiempo_agotado'
   | 'red'
   | 'respuesta_invalida'
+  | 'respuesta_cortada'
+
+const TRANSITORIOS: CodigoError[] = ['limite_de_uso', 'servicio_ocupado', 'tiempo_agotado', 'red', 'respuesta_invalida']
+const PRESUPUESTO_REINTENTO_MS = 10000
+const ESPERA_MAXIMA_MS = 3000
 
 class ErrorIA extends Error {
   constructor(
     readonly codigo: CodigoError,
     readonly detalle: string,
+    readonly estadoHttp?: number,
+    readonly tipoAnthropic?: string,
+    readonly requestId?: string,
+    readonly reintentarEn?: number,
   ) {
     super(codigo)
   }
+}
+
+function sanitizar(texto: string): string {
+  return texto.replace(/sk-ant-[A-Za-z0-9_-]+/g, '[clave-oculta]').replace(/\s+/g, ' ').slice(0, 200)
 }
 
 type Registro = { fecha: string; texto: string }
@@ -48,7 +64,7 @@ type Solicitud =
 const MAX_ENTRADAS = 30
 const MAX_TEXTO = 4000
 const MAX_MEMORIA = 20
-const TIPOS_MEMORIA = ['objetivo', 'preferencia', 'rutina_aceptada', 'rutina_rechazada', 'funciona', 'no_funciona', 'correccion'] as const
+const TIPOS_MEMORIA = ['objetivo', 'preferencia', 'rutina_aceptada', 'rutina_rechazada', 'funciona', 'no_funciona', 'correccion', 'consejo'] as const
 
 const URL_ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 
@@ -130,7 +146,7 @@ ${bloqueMemoria}
 
 ${bloqueRegistros}
 
-Responde únicamente con JSON válido: {"respuesta": string, "senalRiesgo": boolean, "memoriaNueva": [{"tipo": "objetivo" | "preferencia" | "rutina_aceptada" | "rutina_rechazada" | "funciona" | "no_funciona" | "correccion", "texto": string}]}`
+Responde únicamente con JSON válido: {"respuesta": string, "senalRiesgo": boolean, "consejosDados": string[] (máximo 3 frases, cada una describe un consejo concreto que diste en esta respuesta; [] si no diste ninguno), "memoriaNueva": [{"tipo": "objetivo" | "preferencia" | "rutina_aceptada" | "rutina_rechazada" | "funciona" | "no_funciona" | "correccion" | "consejo", "texto": string}], "consejosDados": string[]}`
 }
 
 function texto(valor: unknown, max: number): string | null {
@@ -212,21 +228,24 @@ function validar(body: unknown): Solicitud | null {
   return null
 }
 
-function extraerDetalle(cuerpo: string): string {
+function leerError(cuerpo: string): { tipo?: string; mensaje: string; requestId?: string } {
   try {
-    const json = JSON.parse(cuerpo) as { error?: { type?: string; message?: string } }
-    const partes = [json.error?.type, json.error?.message].filter(Boolean).join(': ')
-    return partes.slice(0, 200)
+    const json = JSON.parse(cuerpo) as { error?: { type?: string; message?: string }; request_id?: string }
+    return { tipo: json.error?.type, mensaje: sanitizar(json.error?.message ?? ''), requestId: json.request_id }
   } catch {
-    return cuerpo.slice(0, 120).replace(/\s+/g, ' ')
+    return { mensaje: sanitizar(cuerpo) }
   }
 }
 
-function codigoDeEstado(status: number, detalle: string): CodigoError {
-  if (status === 401 || status === 403) return 'clave_invalida'
-  if (status === 404 || (status === 400 && /model/i.test(detalle))) return 'modelo_no_disponible'
-  if (status === 429) return 'limite_de_uso'
-  if (status === 400 || status === 422) return 'solicitud_rechazada'
+function codigoDeRespuesta(status: number, tipo: string | undefined, mensaje: string): CodigoError {
+  if (status === 401 || tipo === 'authentication_error') return 'clave_invalida'
+  if (status === 403 || tipo === 'permission_error') return 'permisos'
+  if (tipo === 'billing_error' || /credit|balance|billing|payment|factur/i.test(mensaje)) return 'facturacion'
+  if (status === 404 || tipo === 'not_found_error') return /model/i.test(mensaje) ? 'modelo_no_disponible' : 'solicitud_rechazada'
+  if (status === 400 && /model/i.test(mensaje)) return 'modelo_no_disponible'
+  if (status === 429 || tipo === 'rate_limit_error') return 'limite_de_uso'
+  if (status >= 500 || tipo === 'overloaded_error' || tipo === 'api_error') return 'servicio_ocupado'
+  if (status === 400 || status === 413 || status === 422 || tipo === 'invalid_request_error') return 'solicitud_rechazada'
   return 'servicio_ocupado'
 }
 
@@ -247,14 +266,23 @@ async function llamarClaude(config: ConfigIA, system: string, mensajes: Turno[],
     })
   } catch (error) {
     if (controlador.signal.aborted) throw new ErrorIA('tiempo_agotado', 'la solicitud superó el tiempo máximo')
-    throw new ErrorIA('red', error instanceof Error ? error.name : 'error de red')
+    throw new ErrorIA('red', sanitizar(error instanceof Error ? `${error.name}: ${error.message}` : 'error de red'))
   } finally {
     clearTimeout(temporizador)
   }
 
   if (!respuesta.ok) {
-    const detalle = extraerDetalle(await respuesta.text().catch(() => ''))
-    throw new ErrorIA(codigoDeEstado(respuesta.status, detalle), `HTTP ${respuesta.status} ${detalle}`)
+    const cuerpo = await respuesta.text().catch(() => '')
+    const { tipo, mensaje, requestId } = leerError(cuerpo)
+    const espera = Number(respuesta.headers.get('retry-after'))
+    throw new ErrorIA(
+      codigoDeRespuesta(respuesta.status, tipo, mensaje),
+      mensaje,
+      respuesta.status,
+      tipo,
+      respuesta.headers.get('request-id') ?? requestId,
+      Number.isFinite(espera) && espera > 0 ? espera * 1000 : undefined,
+    )
   }
 
   const datos = (await respuesta.json()) as { content?: { type: string; text?: string }[]; stop_reason?: string }
@@ -264,7 +292,7 @@ async function llamarClaude(config: ConfigIA, system: string, mensajes: Turno[],
     .join('')
   if (!salida.trim()) throw new ErrorIA('respuesta_invalida', 'respuesta vacía')
   if (datos.stop_reason === 'max_tokens') {
-    throw new ErrorIA('respuesta_invalida', `respuesta cortada por el límite de ${maxTokens} tokens (final: "${salida.slice(-80).replace(/\s+/g, ' ')}")`)
+    throw new ErrorIA('respuesta_cortada', `respuesta cortada por el límite de ${maxTokens} tokens (final: "${salida.slice(-80).replace(/\s+/g, ' ')}")`)
   }
   return salida
 }
@@ -301,6 +329,24 @@ function extraerJson(salida: string): unknown {
   throw new ErrorIA('respuesta_invalida', `la respuesta no contiene JSON válido (inicio: "${inicio}")`)
 }
 
+async function conReintentos<T>(config: ConfigIA, operacion: () => Promise<T>): Promise<T> {
+  const inicio = config.inicio ?? Date.now()
+  let ultimo: unknown
+  for (let intento = 1; intento <= 2; intento++) {
+    try {
+      return await operacion()
+    } catch (error) {
+      ultimo = error
+      if (!(error instanceof ErrorIA) || intento === 2 || !TRANSITORIOS.includes(error.codigo)) break
+      if (Date.now() - inicio > PRESUPUESTO_REINTENTO_MS) break
+      const espera = Math.min(error.reintentarEn ?? 1500, ESPERA_MAXIMA_MS)
+      console.error(`[ia] reintento en ${espera} ms codigo=${error.codigo} estado=${error.estadoHttp ?? '-'} requestId=${error.requestId ?? '-'}`)
+      await new Promise((resolver) => setTimeout(resolver, espera))
+    }
+  }
+  throw ultimo
+}
+
 async function consultarJson<T>(
   config: ConfigIA,
   system: string,
@@ -308,16 +354,7 @@ async function consultarJson<T>(
   maxTokens: number,
   validador: (json: unknown) => T,
 ): Promise<T> {
-  let ultimo: unknown
-  for (let intento = 0; intento < 2; intento++) {
-    try {
-      return validador(extraerJson(await llamarClaude(config, system, mensajes, maxTokens)))
-    } catch (error) {
-      ultimo = error
-      if (!(error instanceof ErrorIA) || error.codigo !== 'respuesta_invalida') break
-    }
-  }
-  throw ultimo
+  return conReintentos(config, async () => validador(extraerJson(await llamarClaude(config, system, mensajes, maxTokens))))
 }
 
 function validarAnalisisDia(json: unknown, textoOriginal: string) {
@@ -410,7 +447,7 @@ function validarChat(json: unknown) {
         .map((m) => ({ tipo: m.tipo, texto: m.texto.trim().slice(0, 200) }))
         .slice(0, 3)
     : []
-  return { respuesta, senalRiesgo: j.senalRiesgo === true, memoriaNueva }
+  return { respuesta, senalRiesgo: j.senalRiesgo === true, memoriaNueva, consejosDados: listaTextos(j.consejosDados, 3, 160) }
 }
 
 function formatearRegistros(entradas: Registro[]): string {
@@ -468,20 +505,25 @@ Instrucción: ${solicitud.instruccion === 'alternativa' ? 'alternativa' : 'nueva
   for (const m of primerUsuario === -1 ? [] : solicitud.historial.slice(primerUsuario)) {
     previos.push({ role: m.rol === 'usuario' ? 'user' : 'assistant', content: m.texto })
   }
-  const salida = await llamarClaude(config, sistemaChat(solicitud.memoria, solicitud.contexto), [...previos, { role: 'user', content: solicitud.mensaje }], 1000)
+  const salida = await conReintentos(config, () =>
+    llamarClaude(config, sistemaChat(solicitud.memoria, solicitud.contexto), [...previos, { role: 'user', content: solicitud.mensaje }], 2000),
+  )
   let json: unknown
   try {
     json = extraerJson(salida)
   } catch {
-    json = { respuesta: salida.trim(), senalRiesgo: false, memoriaNueva: [] }
+    json = { respuesta: salida.trim(), senalRiesgo: false, memoriaNueva: [], consejosDados: [] }
   }
   return { resultado: validarChat(json) }
 }
 
-const MENSAJES_HTTP: Record<CodigoError, number> = {
+const ESTADO_HTTP: Record<CodigoError, number> = {
   solicitud_invalida: 400,
   sin_clave: 503,
+  clave_formato: 503,
   clave_invalida: 502,
+  permisos: 502,
+  facturacion: 502,
   modelo_no_disponible: 502,
   solicitud_rechazada: 502,
   limite_de_uso: 429,
@@ -489,23 +531,45 @@ const MENSAJES_HTTP: Record<CodigoError, number> = {
   tiempo_agotado: 504,
   red: 502,
   respuesta_invalida: 502,
+  respuesta_cortada: 502,
 }
 
-export async function procesarSolicitud(body: unknown, config: ConfigIA): Promise<{ status: number; body: unknown }> {
+export async function procesarSolicitud(body: unknown, configEntrada: ConfigIA): Promise<{ status: number; body: unknown }> {
+  const config: ConfigIA = { ...configEntrada, inicio: Date.now() }
   const solicitud = validar(body)
   if (!solicitud) return { status: 400, body: { error: 'solicitud_invalida' } }
   if (!config.apiKey) {
     console.error(`[ia] accion=${solicitud.tipo} codigo=sin_clave: falta ANTHROPIC_API_KEY en el servidor`)
-    return { status: 503, body: { error: 'sin_clave' } }
+    return { status: 503, body: { error: 'sin_clave', mensajeTecnico: 'Falta la variable ANTHROPIC_API_KEY en el entorno del servidor.' } }
+  }
+  if (!config.apiKey.startsWith('sk-ant-')) {
+    console.error(`[ia] accion=${solicitud.tipo} codigo=clave_formato: ANTHROPIC_API_KEY no empieza por "sk-ant-" (longitud ${config.apiKey.length})`)
+    return {
+      status: 503,
+      body: { error: 'clave_formato', mensajeTecnico: 'ANTHROPIC_API_KEY no tiene el formato esperado (debe empezar por sk-ant-).' },
+    }
   }
 
   try {
     const { resultado } = await ejecutar(config, solicitud)
     return { status: 200, body: { resultado } }
   } catch (error) {
-    const codigo: CodigoError = error instanceof ErrorIA ? error.codigo : 'servicio_ocupado'
-    const detalle = error instanceof ErrorIA ? error.detalle : String(error)
-    console.error(`[ia] accion=${solicitud.tipo} codigo=${codigo} ${detalle}`)
-    return { status: MENSAJES_HTTP[codigo], body: { error: codigo } }
+    const errorIA = error instanceof ErrorIA ? error : null
+    const codigo: CodigoError = errorIA?.codigo ?? 'servicio_ocupado'
+    const detalle = errorIA?.detalle ?? sanitizar(String(error))
+    const duracion = Date.now() - (config.inicio ?? Date.now())
+    console.error(
+      `[ia] accion=${solicitud.tipo} codigo=${codigo} estado=${errorIA?.estadoHttp ?? '-'} tipo=${errorIA?.tipoAnthropic ?? '-'} requestId=${errorIA?.requestId ?? '-'} duracion=${duracion}ms detalle=${detalle}`,
+    )
+    return {
+      status: ESTADO_HTTP[codigo],
+      body: {
+        error: codigo,
+        estadoAnthropic: errorIA?.estadoHttp ?? null,
+        tipoAnthropic: errorIA?.tipoAnthropic ?? null,
+        mensajeTecnico: detalle,
+        requestId: errorIA?.requestId ?? null,
+      },
+    }
   }
 }

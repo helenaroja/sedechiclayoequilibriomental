@@ -1,17 +1,11 @@
 import { useState } from 'react'
-import { diasAtras, fechaClave, formatearDiaCorto, formatearFecha, nuevoId } from '../lib/datos'
-import { diasConRegistro } from '../lib/racha'
+import { fechaClave, formatearDiaCorto, formatearFecha, nuevoId, registrosDelUsuario, rutinasDelUsuario } from '../lib/datos'
+import { diasAtras, diasConRegistro } from '../lib/racha'
 import type { Props } from '../lib/vista'
 import { BannerRacha, Calendario } from './Racha'
 
 const MINIMO_DIAS_PARA_COMPARAR = 3
 const MINIMO_DIAS_PARA_MES = 7
-
-const MENSAJES_LOGRO = [
-  (fecha: string, texto: string) => `El ${fecha} mencionaste: "${texto}". ¡Muy bien! Sigue observando qué te ayuda a conseguirlo.`,
-  (fecha: string, texto: string) => `Registraste el ${fecha}: "${texto}". Ese avance vale la pena reconocerlo.`,
-  (fecha: string, texto: string) => `El ${fecha} escribiste: "${texto}". Podemos revisar qué hiciste ese día para repetirlo.`,
-]
 
 function Seguimiento({ estado, actualizar, ir }: Props) {
   const hoy = new Date()
@@ -19,17 +13,22 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
   const [año, setAño] = useState(hoy.getFullYear())
   const [nota, setNota] = useState('')
 
+  const registros = registrosDelUsuario(estado)
+  const rutinas = [...rutinasDelUsuario(estado)].sort((a, b) => b.creada.localeCompare(a.creada))
   const notas = estado.notas ?? []
-  const dias = [...diasConRegistro(estado.registros)]
 
-  const logros = estado.registros
+  const logros = registros
     .flatMap((r) => (r.analisis?.positivos ?? []).map((p) => ({ fecha: fechaClave(r.creado), texto: p.texto, cita: p.cita, creado: r.creado })))
     .sort((a, b) => b.creado.localeCompare(a.creado))
 
+  const dias = [...diasConRegistro(registros)]
   const semanaActual = dias.filter((d) => d > diasAtras(7)).length
   const semanaAnterior = dias.filter((d) => d > diasAtras(14) && d <= diasAtras(7)).length
   const diasUltimoMes = dias.filter((d) => d > diasAtras(30)).length
   const logrosUltimoMes = logros.filter((l) => l.fecha > diasAtras(30)).length
+
+  const rutinasRealizadas = rutinas.flatMap((r) => r.resultados.filter((s) => s.realizada).map((s) => ({ titulo: r.titulo, fecha: s.fecha })))
+  const rutinasNoFuncionaron = rutinas.flatMap((r) => r.resultados.filter((s) => !s.realizada).map((s) => ({ titulo: r.titulo, fecha: s.fecha, nota: s.nota, id: r.id })))
 
   function agregarNota() {
     const texto = nota.trim()
@@ -46,15 +45,15 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
     <>
       <header className="encabezado-vista">
         <h2>Tu seguimiento</h2>
-        <p>Aquí reconocemos lo que describes en tus días y cómo se van viendo tus pruebas. Son observaciones, no evaluaciones de ti.</p>
+        <p>Aquí reconocemos lo que describes en tus días y lo que registras sobre tus rutinas. Son observaciones, no evaluaciones de ti.</p>
       </header>
 
-      <BannerRacha registros={estado.registros} />
+      <BannerRacha registros={registros} />
 
       <section className="tarjeta">
         <h3>Calendario de registros</h3>
         <Calendario
-          registros={estado.registros}
+          registros={registros}
           mes={mes}
           año={año}
           onCambiar={(m, a) => {
@@ -67,14 +66,14 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
       <section className="tarjeta">
         <h3>Lo que has logrado</h3>
         {logros.length === 0 ? (
-          <p className="texto-pequeno">
-            Todavía no hay logros descritos en tus registros. Cuando los menciones y los analicemos, aparecerán aquí.
-          </p>
+          <p className="texto-pequeno">Todavía no hay logros en tus registros analizados. Cuando describas algo que salió bien y lo analicemos, aparecerá aquí.</p>
         ) : (
           <ul className="lista">
-            {logros.slice(0, 3).map((l, i) => (
+            {logros.slice(0, 3).map((l) => (
               <li key={`${l.creado}-${l.texto}`} className="lista__item">
-                <p>{MENSAJES_LOGRO[i % MENSAJES_LOGRO.length](formatearDiaCorto(l.fecha), l.texto)}</p>
+                <p>
+                  El {formatearDiaCorto(l.fecha)} describiste: "{l.texto}". Ese avance merece reconocerse; sigamos observando qué lo hizo posible.
+                </p>
               </li>
             ))}
           </ul>
@@ -93,22 +92,74 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
         )}
       </section>
 
+      <section className="tarjeta">
+        <h3>Tus rutinas</h3>
+        {rutinas.length === 0 ? (
+          <p className="texto-pequeno">Cuando tengas una rutina en "Romper el ciclo", aquí verás cómo te fue.</p>
+        ) : (
+          <>
+            <p>
+              <span className="estadistica">{rutinasRealizadas.length}</span> vez(ces) que registraste haber hecho una rutina ·{' '}
+              <span className="estadistica">{rutinas.filter((r) => r.estado === 'en_prueba').length}</span> en prueba
+            </p>
+            {rutinasRealizadas.length > 0 && (
+              <p className="texto-pequeno">
+                Realizaste: {[...new Set(rutinasRealizadas.map((r) => r.titulo))].join(', ')}.
+              </p>
+            )}
+            <ul className="lista" style={{ marginTop: '0.75rem' }}>
+              {rutinas.map((r) => {
+                const ultimo = r.resultados[r.resultados.length - 1]
+                return (
+                  <li key={r.id} className="lista__item">
+                    <div className="fila-entre">
+                      <strong>{r.titulo}</strong>
+                      <span className="insignia">
+                        {r.estado === 'en_prueba' ? 'En prueba' : r.estado === 'descartada' ? 'Descartada' : 'Propuesta'}
+                      </span>
+                    </div>
+                    {ultimo ? (
+                      <p className="texto-pequeno">
+                        Último registro ({formatearFecha(ultimo.fecha)}): {ultimo.realizada ? 'la hiciste' : 'no te funcionó'}
+                        {ultimo.nota ? ` · ${ultimo.nota}` : ''}
+                      </p>
+                    ) : (
+                      <p className="texto-pequeno">Aún no has registrado cómo te fue.</p>
+                    )}
+                    {ultimo && !ultimo.realizada && (
+                      <div className="acciones">
+                        <p className="texto-pequeno">Que una rutina no funcione también es información. Podemos ajustarla.</p>
+                        <button type="button" className="btn btn--suave btn--pequeno" onClick={() => ir('ciclo', registros.find((x) => x.rutinaId === r.id)?.id)}>
+                          Ajustar la rutina
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+            {rutinasNoFuncionaron.length > 0 && (
+              <p className="texto-pequeno">Para ajustarlas puedes revisar las notas que escribiste en cada una.</p>
+            )}
+          </>
+        )}
+      </section>
+
       <section className="grid-dos">
         <div className="tarjeta">
           <h3>Progreso semanal</h3>
           {semanaActual >= MINIMO_DIAS_PARA_COMPARAR && semanaAnterior >= MINIMO_DIAS_PARA_COMPARAR ? (
             <p>
-              <span className="estadistica">{semanaActual}</span> días registrados esta semana ·{' '}
-              <span className="estadistica">{semanaAnterior}</span> la semana anterior
+              <span className="estadistica">{semanaActual}</span> días registrados esta semana · <span className="estadistica">{semanaAnterior}</span>{' '}
+              la semana anterior
             </p>
           ) : (
             <p className="texto-pequeno">
-              Para comparar semanas necesitamos al menos {MINIMO_DIAS_PARA_COMPARAR} días registrados en cada una. Esta semana
-              tienes {semanaActual}.
+              Para comparar semanas necesitamos al menos {MINIMO_DIAS_PARA_COMPARAR} días registrados en cada una. Esta semana tienes{' '}
+              {semanaActual}.
             </p>
           )}
         </div>
-
         <div className="tarjeta">
           <h3>Último mes</h3>
           {diasUltimoMes >= MINIMO_DIAS_PARA_MES ? (
@@ -117,62 +168,10 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
               <span className="estadistica">{logrosUltimoMes}</span> aspectos positivos.
             </p>
           ) : (
-            <p className="texto-pequeno">Se mostrará un resumen mensual cuando tengas al menos {MINIMO_DIAS_PARA_MES} días registrados en el último mes.</p>
+            <p className="texto-pequeno">Verás un resumen mensual cuando tengas al menos {MINIMO_DIAS_PARA_MES} días registrados en el último mes.</p>
           )}
         </div>
       </section>
-
-      {estado.acciones.length > 0 && (
-        <section className="tarjeta">
-          <h3>Propuestas que probaste</h3>
-          <ul className="lista">
-            {estado.acciones.map((a) => {
-              const ultimo = a.seguimientos[a.seguimientos.length - 1]
-              const comentarios = a.comentarios ?? []
-              const noFuncionó = ultimo && !ultimo.realizada
-              return (
-                <li key={a.id} className="lista__item">
-                  <div className="fila-entre">
-                    <strong>{a.alternativa.titulo}</strong>
-                    <span className="insignia">{a.estado === 'probando' ? 'En prueba' : a.estado === 'completada' ? 'Completada' : 'Pendiente'}</span>
-                  </div>
-                  <p className="texto-pequeno">Patrón: {a.patronNombre}</p>
-                  {ultimo ? (
-                    <p className="texto-pequeno">
-                      Último registro ({formatearFecha(ultimo.fecha)}): {ultimo.realizada ? 'la intentaste' : 'no la pudiste hacer'}
-                      {ultimo.sensacion ? ` · ${ultimo.sensacion}` : ''}
-                    </p>
-                  ) : (
-                    <p className="texto-pequeno">Aún no has registrado cómo te fue.</p>
-                  )}
-                  {noFuncionó && (
-                    <div className="acciones">
-                      <p className="texto-pequeno">Que una propuesta no funcione también es información. Podemos ajustarla juntos.</p>
-                      <button type="button" className="btn btn--suave btn--pequeno" onClick={() => ir('ciclo', a.patronId)}>
-                        Ajustar la propuesta
-                      </button>
-                    </div>
-                  )}
-                  {comentarios.length > 0 && (
-                    <div className="registro__bloque">
-                      <p className="texto-pequeno">
-                        <strong>Comentarios desde el chat:</strong>
-                      </p>
-                      <ul className="texto-pequeno">
-                        {comentarios.map((c) => (
-                          <li key={c.fecha}>
-                            {formatearFecha(c.fecha)}: "{c.texto}"
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      )}
 
       <section className="tarjeta">
         <h3>Cambios que he notado</h3>
@@ -202,9 +201,7 @@ function Seguimiento({ estado, actualizar, ir }: Props) {
         )}
       </section>
 
-      <p className="texto-pequeno">
-        Estas comparaciones describen lo que escribiste. No demuestran una relación de causa y efecto ni miden tu salud.
-      </p>
+      <p className="texto-pequeno">Estas comparaciones describen lo que escribiste. No demuestran una relación de causa y efecto ni miden tu salud.</p>
     </>
   )
 }

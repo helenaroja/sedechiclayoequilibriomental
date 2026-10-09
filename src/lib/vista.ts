@@ -5,6 +5,6 @@ export type Vista = 'escribir' | 'historial' | 'patrones' | 'ciclo' | 'seguimien
 export type Props = {
   estado: Estado
   actualizar: (cambio: (estado: Estado) => Estado) => void
-  ir: (vista: Vista, patronId?: string) => void
-  patronInicial?: string
+  ir: (vista: Vista, parametro?: string) => void
+  parametro?: string
 }

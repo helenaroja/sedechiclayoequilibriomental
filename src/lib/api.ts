@@ -1,79 +1,120 @@
-import { fechaClave, type AnalisisDia, type Mensaje, type Registro } from './datos'
-import type { PatronCrudo } from './analisis'
+import type { Memoria, Mensaje, Positivo, Habito } from './datos'
 
-export type ResultadoIA<T> = { modo: 'ia'; datos: T } | { modo: 'demo' } | { modo: 'error'; mensaje: string }
+export type Resultado<T> = { ok: true; datos: T } | { ok: false; codigo: string; mensaje: string }
 
-export type DiaRespuesta = Omit<AnalisisDia, 'creado' | 'correccion'> & { fecha: string }
-
-export type RespuestaAnalisis = {
-  dias?: DiaRespuesta[]
-  senalRiesgo?: boolean
-  patrones?: PatronCrudo[]
+const MENSAJES: Record<string, string> = {
+  sin_clave:
+    'El servicio de IA no está configurado en el servidor: falta la clave de acceso. Tu información sigue guardada.',
+  clave_invalida:
+    'El servicio de IA rechazó la clave de acceso configurada en el servidor. Tu información sigue guardada. Quien administra la aplicación debe revisar ANTHROPIC_API_KEY.',
+  modelo_no_disponible:
+    'El modelo de IA configurado no está disponible. Tu información sigue guardada. Quien administra la aplicación debe revisar ANTHROPIC_MODEL.',
+  solicitud_rechazada: 'El servicio de IA no pudo procesar esta solicitud. Tu información sigue guardada.',
+  limite_de_uso: 'Se alcanzó el límite de uso del servicio de IA. Intenta de nuevo en unos minutos. Tu información sigue guardada.',
+  servicio_ocupado: 'El servicio de IA está ocupado o no responde. Intenta de nuevo en unos minutos. Tu información sigue guardada.',
+  tiempo_agotado: 'La IA tardó demasiado en responder. Intenta de nuevo. Tu información sigue guardada.',
+  red: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo. Tu información sigue guardada.',
+  respuesta_invalida: 'La IA respondió, pero la respuesta no se pudo leer. Intenta de nuevo. Tu información sigue guardada.',
+  solicitud_invalida: 'No se pudo enviar la solicitud porque faltan datos. Revisa el texto e intenta de nuevo.',
 }
 
-export type RespuestaChat = { respuesta: string; senalRiesgo?: boolean }
+export type RespuestaAnalisisDia = {
+  resumen: string
+  actividades: string[]
+  emociones: string[]
+  factores: string[]
+  dificultades: string[]
+  positivos: Positivo[]
+  habitos: Habito[]
+  posiblesRelaciones: string[]
+  accionesSugeridas: string[]
+  senalRiesgo: boolean
+}
+
+export type RespuestaPatron = {
+  nombre: string
+  observacion: string
+  evidencia: { fecha: string; extracto: string }[]
+  posibleRelacion: string
+  fortalezas: string[]
+  siguientePaso: string
+}
 
 export type RespuestaRutina = {
   titulo: string
-  problema: string
+  patronObservado: string
   porQue: string
   pasos: string[]
   duracionMinutos: number
   alternativaSimple: string
 }
 
-export const MENSAJE_ERROR_TECNICO =
-  'Hubo un problema técnico con el servicio de IA. No es un error tuyo: tu registro sigue guardado. Puedes intentarlo de nuevo en unos minutos.'
-
-function aEntradas(registros: Registro[]) {
-  return registros.map((r) => ({ fecha: fechaClave(r.creado), texto: r.texto }))
+export type RespuestaChat = {
+  respuesta: string
+  senalRiesgo: boolean
+  memoriaNueva: { tipo: string; texto: string }[]
 }
 
-async function llamar<T>(cuerpo: unknown): Promise<ResultadoIA<T>> {
+async function llamar<T>(cuerpo: unknown): Promise<Resultado<T>> {
+  let respuesta: Response
   try {
-    const respuesta = await fetch('/api/ai', {
+    respuesta = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(cuerpo),
     })
-    if (respuesta.status === 503) return { modo: 'demo' }
-    if (!respuesta.ok) return { modo: 'error', mensaje: MENSAJE_ERROR_TECNICO }
-    const json = (await respuesta.json()) as { resultado: T }
-    return { modo: 'ia', datos: json.resultado }
   } catch {
-    return {
-      modo: 'error',
-      mensaje: 'No hay conexión con el servicio de IA. Revisa tu internet e intenta de nuevo. Tu registro sigue guardado.',
-    }
+    return { ok: false, codigo: 'red', mensaje: MENSAJES.red }
+  }
+
+  let json: { resultado?: T; error?: string } = {}
+  try {
+    json = (await respuesta.json()) as typeof json
+  } catch {
+    json = {}
+  }
+
+  if (respuesta.ok && json.resultado !== undefined) return { ok: true, datos: json.resultado }
+
+  const codigo = json.error ?? (respuesta.status === 404 ? 'ruta_no_encontrada' : 'servicio_ocupado')
+  console.error(`[ia] ${String(cuerpo && (cuerpo as { tipo?: string }).tipo)} respondió ${respuesta.status} (${codigo})`)
+  return {
+    ok: false,
+    codigo,
+    mensaje: MENSAJES[codigo] ?? `No se pudo completar la solicitud (código ${respuesta.status}). Tu información sigue guardada.`,
   }
 }
 
-export function analizarConIA(registros: Registro[]) {
-  return llamar<RespuestaAnalisis>({ tipo: 'analizar', entradas: aEntradas(registros) })
+export function analizarDiaIA(fecha: string, texto: string, memoria: string[]) {
+  return llamar<RespuestaAnalisisDia>({ tipo: 'analizar_dia', fecha, texto, memoria })
 }
 
-export function conversarConIA(
-  mensaje: string,
-  historial: Pick<Mensaje, 'rol' | 'texto'>[],
-  registrosDeContexto: Registro[],
-) {
+export function analizarPatronesIA(entradas: { fecha: string; texto: string }[], memoria: string[]) {
+  return llamar<{ patrones: RespuestaPatron[] }>({ tipo: 'patrones', entradas, memoria })
+}
+
+export function generarRutinaIA(input: {
+  fecha: string
+  analisis: { resumen: string; dificultades: string[]; accionesSugeridas: string[] }
+  historial: { fecha: string; dificultades: string[] }[]
+  memoria: string[]
+  rechazadas: string[]
+  instruccion: 'nueva' | 'alternativa'
+}) {
+  return llamar<RespuestaRutina>({ tipo: 'rutina', ...input })
+}
+
+export function conversarIA(input: {
+  mensaje: string
+  historial: Pick<Mensaje, 'rol' | 'texto'>[]
+  memoria: Memoria[]
+  contexto: { fecha: string; texto: string }[]
+}) {
   return llamar<RespuestaChat>({
     tipo: 'chat',
-    mensaje,
-    entradas: aEntradas(registrosDeContexto.slice(-30)),
-    historial,
-  })
-}
-
-export function proponerRutinaConIA(
-  patron: { nombre: string; observacion: string; evidencia: { fecha: string; extracto: string }[] },
-  registros: Registro[],
-  instruccion: 'nueva' | 'mas_simple' | 'otra',
-) {
-  return llamar<RespuestaRutina>({
-    tipo: 'rutina',
-    patron,
-    entradas: aEntradas(registros.slice(-10)),
-    instruccion,
+    mensaje: input.mensaje,
+    historial: input.historial,
+    memoria: input.memoria.map((m) => m.texto),
+    contexto: input.contexto,
   })
 }

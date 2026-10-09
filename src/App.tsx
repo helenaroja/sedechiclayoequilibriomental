@@ -24,7 +24,7 @@ function App() {
   const [estado, setEstado] = useState<Estado>(cargarEstado)
   const [entrado, setEntrado] = useState(false)
   const [vista, setVista] = useState<Vista>('escribir')
-  const [patronId, setPatronId] = useState<string | undefined>()
+  const [parametro, setParametro] = useState<string | undefined>()
 
   useEffect(() => {
     guardarEstado(estado)
@@ -32,13 +32,13 @@ function App() {
 
   if (!entrado) return <Bienvenida onEntrar={() => setEntrado(true)} />
 
-  const ir = (destino: Vista, id?: string) => {
+  const ir = (destino: Vista, valor?: string) => {
     setVista(destino)
-    setPatronId(id)
+    setParametro(valor)
     window.scrollTo({ top: 0 })
   }
 
-  const props = { estado, actualizar: setEstado, ir, patronInicial: patronId }
+  const props = { estado, actualizar: setEstado, ir, parametro }
 
   return (
     <div className="app">
@@ -48,12 +48,7 @@ function App() {
         </div>
         <nav className="app__nav" aria-label="Secciones">
           {NAVEGACION.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={vista === item.id ? 'page' : undefined}
-              onClick={() => ir(item.id)}
-            >
+            <button key={item.id} type="button" aria-current={vista === item.id ? 'page' : undefined} onClick={() => ir(item.id)}>
               {item.nombre}
             </button>
           ))}

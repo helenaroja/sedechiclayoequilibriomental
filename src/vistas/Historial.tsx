@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { fechaClave, formatearFecha, type AnalisisDia, type Registro } from '../lib/datos'
+import { procesarDia } from '../lib/flujos'
+import { fechaClave, formatearFecha, nuevoId, registrosDelUsuario, rutinasDelUsuario, type AnalisisDia, type Registro } from '../lib/datos'
 import type { Props } from '../lib/vista'
 
 function Bloque({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -25,76 +26,93 @@ function Etiquetas({ items }: { items: string[] }) {
   )
 }
 
-function Interpretacion({ analisis, onCorregir }: { analisis: AnalisisDia; onCorregir: (texto: string | null) => void }) {
+function Interpretacion({ analisis, onCorregir }: { analisis: AnalisisDia; onCorregir: (texto: string) => void }) {
   const [editando, setEditando] = useState(false)
   const [borrador, setBorrador] = useState(analisis.correccion ?? analisis.resumen)
 
-  function guardar() {
-    const texto = borrador.trim()
-    onCorregir(texto && texto !== analisis.resumen ? texto : null)
-    setEditando(false)
+  if (editando) {
+    return (
+      <Bloque titulo="Corregir la interpretación">
+        <textarea className="campo-texto" style={{ minHeight: '110px' }} aria-label="Corregir interpretación" value={borrador} onChange={(e) => setBorrador(e.target.value)} />
+        <div className="acciones">
+          <button
+            type="button"
+            className="btn btn--principal btn--pequeno"
+            onClick={() => {
+              if (borrador.trim()) onCorregir(borrador.trim())
+              setEditando(false)
+            }}
+          >
+            Guardar corrección
+          </button>
+          <button type="button" className="btn btn--suave btn--pequeno" onClick={() => setEditando(false)}>
+            Cancelar
+          </button>
+        </div>
+      </Bloque>
+    )
   }
 
   return (
-    <>
-      {editando ? (
-        <div className="registro__bloque">
-          <textarea className="campo-texto" style={{ minHeight: '110px' }} aria-label="Corregir interpretación" value={borrador} onChange={(e) => setBorrador(e.target.value)} />
-          <div className="acciones">
-            <button type="button" className="btn btn--principal btn--pequeno" onClick={guardar}>
-              Guardar corrección
-            </button>
-            <button type="button" className="btn btn--suave btn--pequeno" onClick={() => setEditando(false)}>
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : (
-        <Bloque titulo="Interpretación de tu día">
-          <p>{analisis.correccion ?? analisis.resumen}</p>
-          {analisis.correccion && <p className="texto-pequeno">Corregida por ti. Original: {analisis.resumen}</p>}
-          <div className="acciones">
-            <button type="button" className="btn btn--suave btn--pequeno" onClick={() => { setBorrador(analisis.correccion ?? analisis.resumen); setEditando(true) }}>
-              Corregir interpretación
-            </button>
-            {analisis.correccion && (
-              <button type="button" className="btn btn--peligro btn--pequeno" onClick={() => onCorregir(null)}>
-                Quitar corrección
-              </button>
-            )}
-          </div>
-        </Bloque>
-      )}
-    </>
+    <Bloque titulo="Interpretación de tu día">
+      <p>{analisis.correccion ?? analisis.resumen}</p>
+      {analisis.correccion && <p className="texto-pequeno">Corregida por ti. Original: {analisis.resumen}</p>}
+      <div className="acciones">
+        <button
+          type="button"
+          className="btn btn--suave btn--pequeno"
+          onClick={() => {
+            setBorrador(analisis.correccion ?? analisis.resumen)
+            setEditando(true)
+          }}
+        >
+          Corregir interpretación
+        </button>
+      </div>
+    </Bloque>
   )
 }
 
 function Historial({ estado, actualizar, ir }: Props) {
-  const registros = [...estado.registros].sort((a, b) => b.creado.localeCompare(a.creado))
+  const registros = [...registrosDelUsuario(estado)].sort((a, b) => b.creado.localeCompare(a.creado))
+  const rutinas = rutinasDelUsuario(estado)
   const [expandido, setExpandido] = useState<string | null>(null)
+  const [reintentando, setReintentando] = useState<string | null>(null)
+
+  function aplicar(actualizado: Registro) {
+    actualizar((e) => ({ ...e, registros: e.registros.map((r) => (r.id === actualizado.id ? actualizado : r)) }))
+  }
 
   function eliminar(id: string) {
     if (!window.confirm('¿Eliminar este registro? No se puede deshacer.')) return
     actualizar((e) => ({ ...e, registros: e.registros.filter((r) => r.id !== id) }))
   }
 
-  function corregir(id: string, texto: string | null) {
+  function corregir(registro: Registro, texto: string) {
+    const fecha = fechaClave(registro.creado)
+    aplicar({ ...registro, analisis: { ...registro.analisis!, correccion: texto } })
     actualizar((e) => ({
       ...e,
-      registros: e.registros.map((r) =>
-        r.id === id && r.analisis ? { ...r, analisis: { ...r.analisis, correccion: texto ?? undefined } } : r,
-      ),
+      memoria: [
+        ...e.memoria,
+        {
+          id: nuevoId(),
+          usuarioId: e.usuarioId,
+          tipo: 'correccion',
+          texto: `Corrigió la interpretación de su día del ${fecha}: "${texto.slice(0, 160)}"`,
+          creada: new Date().toISOString(),
+          fuente: 'correccion',
+        },
+      ],
     }))
   }
 
-  function detallesDelDia(r: Registro) {
-    const dia = fechaClave(r.creado)
-    const patrones = estado.patrones.filter((p) => p.interpretacion !== 'descartado' && p.evidencia.some((ev) => ev.fecha === dia))
-    const acciones = patrones.flatMap((p) => (p.alternativas[p.alternativaActual] ? [p.alternativas[p.alternativaActual]] : []))
-    const seguimiento = estado.acciones.flatMap((a) =>
-      a.seguimientos.filter((s) => fechaClave(s.fecha) === dia).map((s) => ({ accion: a.alternativa.titulo, ...s })),
-    )
-    return { patrones, acciones, seguimiento }
+  async function reintentar(registro: Registro) {
+    setReintentando(registro.id)
+    const r = await procesarDia(estado, registro)
+    setReintentando(null)
+    aplicar(r.registro)
+    if (r.rutina) actualizar((e) => ({ ...e, rutinas: [...e.rutinas, r.rutina!] }))
   }
 
   return (
@@ -102,8 +120,8 @@ function Historial({ estado, actualizar, ir }: Props) {
       <header className="encabezado-vista">
         <h2>Historial de tus días</h2>
         <p>
-          {registros.length} registro(s) guardados en este dispositivo. Tu texto original siempre se conserva; la
-          interpretación puedes corregirla.
+          {registros.length} registro(s) guardados en este navegador. Tu texto original siempre se conserva; la interpretación
+          puedes corregirla.
         </p>
       </header>
 
@@ -120,8 +138,9 @@ function Historial({ estado, actualizar, ir }: Props) {
             const abierto = expandido === r.id
             const largo = r.texto.length > 220
             const texto = abierto || !largo ? r.texto : `${r.texto.slice(0, 220).trimEnd()}…`
-            const { patrones, acciones, seguimiento } = detallesDelDia(r)
             const a = r.analisis
+            const rutinasDelDia = rutinas.filter((x) => x.registroId === r.id)
+            const seguimiento = rutinas.flatMap((x) => x.resultados.filter((s) => fechaClave(s.fecha) === fechaClave(r.creado)).map((s) => ({ titulo: x.titulo, ...s })))
             return (
               <li key={r.id} className="lista__item">
                 <div className="fila-entre">
@@ -142,20 +161,15 @@ function Historial({ estado, actualizar, ir }: Props) {
 
                 {a ? (
                   <>
-                    <Interpretacion analisis={a} onCorregir={(t) => corregir(r.id, t)} />
+                    <Interpretacion analisis={a} onCorregir={(t) => corregir(r, t)} />
                     {a.actividades.length > 0 && (
                       <Bloque titulo="Actividades">
                         <Etiquetas items={a.actividades} />
                       </Bloque>
                     )}
                     {a.emociones.length > 0 && (
-                      <Bloque titulo="Emociones mencionadas">
+                      <Bloque titulo="Emociones expresadas">
                         <Etiquetas items={a.emociones} />
-                      </Bloque>
-                    )}
-                    {a.factores.length > 0 && (
-                      <Bloque titulo="Factores relacionados">
-                        <Etiquetas items={a.factores} />
                       </Bloque>
                     )}
                     {a.dificultades.length > 0 && (
@@ -172,48 +186,68 @@ function Historial({ estado, actualizar, ir }: Props) {
                         <ul className="texto-pequeno">
                           {a.positivos.map((p) => (
                             <li key={p.texto}>
-                              {p.texto} <span className="texto-pequeno">(en tu relato: "{p.cita}")</span>
+                              {p.texto} <span>(en tu relato: "{p.cita}")</span>
                             </li>
+                          ))}
+                        </ul>
+                      </Bloque>
+                    )}
+                    {a.habitos.length > 0 && (
+                      <Bloque titulo="Hábitos mencionados">
+                        <ul className="texto-pequeno">
+                          {a.habitos.map((h) => (
+                            <li key={`${h.area}-${h.descripcion}`}>
+                              <strong>{h.area}:</strong> {h.descripcion}
+                            </li>
+                          ))}
+                        </ul>
+                      </Bloque>
+                    )}
+                    {a.posiblesRelaciones.length > 0 && (
+                      <Bloque titulo="Posibles relaciones (sin afirmar causa)">
+                        <ul className="texto-pequeno">
+                          {a.posiblesRelaciones.map((p) => (
+                            <li key={p}>{p}</li>
+                          ))}
+                        </ul>
+                      </Bloque>
+                    )}
+                    {a.accionesSugeridas.length > 0 && (
+                      <Bloque titulo="Acciones que podrían ayudar mañana">
+                        <ul className="texto-pequeno">
+                          {a.accionesSugeridas.map((p) => (
+                            <li key={p}>{p}</li>
                           ))}
                         </ul>
                       </Bloque>
                     )}
                   </>
                 ) : (
-                  <p className="texto-pequeno registro__bloque">Este día todavía no tiene interpretación. Usa "Analizar mi día".</p>
+                  <div className="aviso aviso--error registro__bloque">
+                    <p>
+                      <strong>Este día no tiene análisis.</strong> {r.errorAnalisis ?? 'Todavía no se ha analizado.'}
+                    </p>
+                    <button type="button" className="btn btn--principal btn--pequeno" onClick={() => reintentar(r)} disabled={reintentando !== null}>
+                      {reintentando === r.id ? 'Analizando…' : 'Reintentar análisis'}
+                    </button>
+                  </div>
                 )}
 
-                {patrones.length > 0 && (
-                  <Bloque titulo="Patrones relacionados con este día">
-                    <ul className="texto-pequeno">
-                      {patrones.map((p) => (
-                        <li key={p.id}>
-                          {p.nombre} · {p.certeza === 'respaldado' ? 'respaldado por varios registros' : 'observación inicial'}
-                        </li>
-                      ))}
-                    </ul>
-                  </Bloque>
-                )}
-
-                {acciones.length > 0 && (
-                  <Bloque titulo="Propuestas relacionadas">
-                    <ul className="texto-pequeno">
-                      {acciones.map((ac) => (
-                        <li key={ac.titulo}>
-                          {ac.titulo} ({ac.minutos} min)
-                        </li>
-                      ))}
-                    </ul>
-                  </Bloque>
+                {rutinasDelDia.length > 0 && (
+                  <div className="acciones">
+                    <button type="button" className="btn btn--suave btn--pequeno" onClick={() => ir('ciclo', r.id)}>
+                      Ver la rutina de este día
+                    </button>
+                  </div>
                 )}
 
                 {seguimiento.length > 0 && (
-                  <Bloque titulo="Seguimiento de propuestas">
+                  <Bloque titulo="Seguimiento de la rutina">
                     <ul className="texto-pequeno">
                       {seguimiento.map((s) => (
-                        <li key={`${s.fecha}-${s.accion}`}>
-                          {s.accion}: {s.realizada ? 'la hiciste' : 'no la hiciste'}
-                          {s.sensacion ? ` · ${s.sensacion}` : ''}
+                        <li key={`${s.fecha}-${s.titulo}`}>
+                          {s.titulo}: {s.realizada ? 'la hiciste' : 'no te funcionó'}
+                          {s.nota ? ` · ${s.nota}` : ''}
                         </li>
                       ))}
                     </ul>

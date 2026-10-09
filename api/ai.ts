@@ -9,8 +9,9 @@ export default async function handler(req: Peticion, res: Respuesta) {
     return
   }
   const resultado = await procesarSolicitud(req.body, {
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model: process.env.ANTHROPIC_MODEL,
+    apiKey: process.env.ANTHROPIC_API_KEY?.trim(),
+    model: process.env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-4-5-20251001',
+    timeoutMs: Number(process.env.ANTHROPIC_TIMEOUT_MS) || undefined,
   })
   res.status(resultado.status).json(resultado.body)
 }

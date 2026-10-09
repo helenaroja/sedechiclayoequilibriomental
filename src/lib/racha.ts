@@ -12,6 +12,10 @@ export function sumarDias(fecha: string, n: number): string {
   return fechaClave(d.toISOString())
 }
 
+export function diasAtras(n: number): string {
+  return sumarDias(hoyLocal(), -n)
+}
+
 export function diasConRegistro(registros: Registro[]): Set<string> {
   return new Set(registros.map((r) => fechaClave(r.creado)))
 }

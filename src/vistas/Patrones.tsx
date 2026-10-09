@@ -1,5 +1,7 @@
+import { useState } from 'react'
+import { recalcularPatrones } from '../lib/flujos'
 import { diasConRegistro } from '../lib/racha'
-import { fechaClave, formatearDiaCorto, type Patron } from '../lib/datos'
+import { formatearDiaCorto, formatearFecha, registrosDelUsuario, type Patron } from '../lib/datos'
 import type { Props } from '../lib/vista'
 
 type Interpretacion = NonNullable<Patron['interpretacion']>
@@ -12,90 +14,86 @@ const OPCIONES: { valor: Interpretacion; etiqueta: string }[] = [
 ]
 
 function Patrones({ estado, actualizar, ir }: Props) {
-  const analisis = estado.analisis
-  const diasRegistrados = diasConRegistro(estado.registros).size
-  const visibles = estado.patrones.filter((p) => p.interpretacion !== 'descartado')
-  const descartados = estado.patrones.filter((p) => p.interpretacion === 'descartado')
-  const ultimoConAnalisis = [...estado.registros]
-    .filter((r) => r.analisis)
-    .sort((a, b) => b.creado.localeCompare(a.creado))[0]
+  const [recalculando, setRecalculando] = useState(false)
+  const registros = registrosDelUsuario(estado)
+  const dias = diasConRegistro(registros).size
+  const patrones = estado.patrones.filter((p) => p.usuarioId === estado.usuarioId)
+  const visibles = patrones.filter((p) => p.interpretacion !== 'descartado')
+  const descartados = patrones.filter((p) => p.interpretacion === 'descartado')
 
   function fijarInterpretacion(id: string, valor: Interpretacion | null) {
-    actualizar((e) => ({
-      ...e,
-      patrones: e.patrones.map((p) => (p.id === id ? { ...p, interpretacion: valor ?? undefined } : p)),
-    }))
+    actualizar((e) => ({ ...e, patrones: e.patrones.map((p) => (p.id === id ? { ...p, interpretacion: valor ?? undefined } : p)) }))
+  }
+
+  async function recalcular() {
+    setRecalculando(true)
+    const r = await recalcularPatrones(estado)
+    setRecalculando(false)
+    if (r.ok) actualizar((e) => ({ ...e, patrones: [...e.patrones.filter((p) => p.usuarioId !== e.usuarioId), ...r.datos], patronesError: undefined, patronesCreado: new Date().toISOString() }))
+    else actualizar((e) => ({ ...e, patronesError: r.mensaje }))
   }
 
   return (
     <>
       <header className="encabezado-vista">
         <h2>Tu patrón identificado</h2>
-        <p>Estas observaciones se basan en lo que escribiste. Son posibilidades para reflexionar, no conclusiones.</p>
+        <p>Comparamos tus registros de distintos días. Son observaciones para reflexionar, no conclusiones.</p>
       </header>
 
-      {!analisis && (
-        <section className="tarjeta vacio">
-          <p>Aún no hay un análisis. Escribe tu día y pulsa "Analizar mi día".</p>
-          <button type="button" className="btn btn--principal" onClick={() => ir('escribir')}>
+      {dias < 2 && (
+        <section className="tarjeta">
+          <h3>Todavía no hay un patrón que confirmar</h3>
+          <p>
+            Tienes {dias} {dias === 1 ? 'día' : 'días'} registrados. Un solo día no basta para confirmar algo que se repite. Con
+            registros de varios días aquí verás patrones con sus ejemplos.
+          </p>
+          <button type="button" className="btn btn--suave" onClick={() => ir('escribir')}>
             Escribir mi día
           </button>
         </section>
       )}
 
-      {analisis?.modo === 'demo' && (
-        <p className="aviso aviso--demo">
-          Demostración: este análisis usa reglas simuladas y no una IA real.
-        </p>
-      )}
-
-      {analisis && diasRegistrados < 2 && (
-        <section className="tarjeta">
-          <h3>Todavía no hay un patrón que confirmar</h3>
-          <p>
-            Solo tienes {diasRegistrados} día registrado. Un solo día no basta para confirmar un patrón que se repite. Cuando
-            tengas registros de varios días, aquí los compararemos.
-          </p>
-          {ultimoConAnalisis?.analisis && (
-            <div className="tarjeta tarjeta--suave">
-              <p>
-                <strong>Lo que observé en tu último día ({formatearDiaCorto(fechaClave(ultimoConAnalisis.creado))}):</strong>
-              </p>
-              <p>{ultimoConAnalisis.analisis.correccion ?? ultimoConAnalisis.analisis.resumen}</p>
-              {ultimoConAnalisis.analisis.dificultades.length > 0 && (
-                <p className="texto-pequeno">Dificultades que mencionaste: {ultimoConAnalisis.analisis.dificultades.join(', ')}.</p>
-              )}
-              {ultimoConAnalisis.analisis.positivos.length > 0 && (
-                <p className="texto-pequeno">Aspectos positivos: {ultimoConAnalisis.analisis.positivos.map((p) => p.texto).join(', ')}.</p>
-              )}
-            </div>
-          )}
+      {estado.patronesError && (
+        <section className="aviso aviso--error">
+          <p>No pudimos calcular tus patrones. {estado.patronesError} Tus registros siguen guardados.</p>
+          <button type="button" className="btn btn--principal btn--pequeno" onClick={recalcular} disabled={recalculando}>
+            {recalculando ? 'Calculando…' : 'Reintentar'}
+          </button>
         </section>
       )}
 
-      {analisis && diasRegistrados >= 2 && visibles.length === 0 && (
+      {dias >= 2 && !estado.patronesError && patrones.length === 0 && estado.patronesCreado && (
         <section className="tarjeta vacio">
           <p>Por ahora no encontramos situaciones que se repitan en varios días. Eso también es una observación útil.</p>
+          <button type="button" className="btn btn--suave btn--pequeno" onClick={recalcular} disabled={recalculando}>
+            Volver a revisar mis días
+          </button>
         </section>
       )}
+
+      {dias >= 2 && !estado.patronesCreado && !estado.patronesError && (
+        <section className="tarjeta vacio">
+          <p>Todavía no se ha calculado tu patrón. Puedes calcularlo ahora con tus registros.</p>
+          <button type="button" className="btn btn--principal" onClick={recalcular} disabled={recalculando}>
+            {recalculando ? 'Calculando…' : 'Calcular mi patrón'}
+          </button>
+        </section>
+      )}
+
+      {estado.patronesCreado && <p className="texto-pequeno">Calculado el {formatearFecha(estado.patronesCreado)} con {dias} días registrados.</p>}
 
       <ul className="lista">
         {visibles.map((p) => (
           <li key={p.id} className="lista__item">
             <div className="fila-entre">
               <h3>{p.nombre}</h3>
-              <span className={`insignia ${p.certeza === 'respaldado' ? 'insignia--fuerte' : ''}`}>
-                {p.certeza === 'respaldado' ? 'Respaldado por varios registros' : 'Observación inicial'}
+              <span className={`insignia ${p.evidencia.length >= 3 ? 'insignia--fuerte' : ''}`}>
+                {p.evidencia.length >= 3 ? 'Respaldado por varios registros' : 'Observación inicial'}
               </span>
             </div>
-
             <p>{p.observacion}</p>
-
             <p className="texto-pequeno">
               <strong>Frecuencia:</strong> observado en {p.evidencia.length} días distintos.
-            </p>
-            <p className="texto-pequeno">
-              <strong>Evidencia:</strong>
             </p>
             <ul className="evidencia">
               {p.evidencia.map((ev) => (
@@ -104,25 +102,21 @@ function Patrones({ estado, actualizar, ir }: Props) {
                 </li>
               ))}
             </ul>
-
             {p.posibleRelacion && (
               <p>
                 <strong>Posible relación:</strong> {p.posibleRelacion}
               </p>
             )}
-
             {p.fortalezas.length > 0 && (
               <p>
                 <strong>Lo que ya te ayuda:</strong> {p.fortalezas.join('; ')}.
               </p>
             )}
-
             {p.siguientePaso && (
               <p>
                 <strong>Siguiente paso posible:</strong> {p.siguientePaso}
               </p>
             )}
-
             <p className="texto-pequeno">¿Te parece correcta esta interpretación?</p>
             <div className="acciones">
               {OPCIONES.map((op) => (
@@ -137,10 +131,9 @@ function Patrones({ estado, actualizar, ir }: Props) {
                 </button>
               ))}
             </div>
-
             <div className="acciones">
-              <button type="button" className="btn btn--principal btn--pequeno" onClick={() => ir('ciclo', p.id)}>
-                Ver propuesta para este patrón
+              <button type="button" className="btn btn--principal btn--pequeno" onClick={() => ir('ciclo')}>
+                Ver rutinas
               </button>
             </div>
           </li>

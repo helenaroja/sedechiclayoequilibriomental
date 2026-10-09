@@ -34,7 +34,14 @@ function apiIADev(config: ConfigIA): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
-    plugins: [react(), apiIADev({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL })],
+    plugins: [
+      react(),
+      apiIADev({
+        apiKey: env.ANTHROPIC_API_KEY?.trim(),
+        model: env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-4-5-20251001',
+        timeoutMs: Number(env.ANTHROPIC_TIMEOUT_MS) || undefined,
+      }),
+    ],
     server: {
       port: 5173,
     },

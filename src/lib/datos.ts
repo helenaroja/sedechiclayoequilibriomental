@@ -1,4 +1,10 @@
-export type Registro = { id: string; creado: string; texto: string }
+export type Registro = {
+  id: string
+  creado: string
+  texto: string
+  emociones?: string[]
+  factores?: string[]
+}
 
 export type Alternativa = { titulo: string; explicacion: string; paso: string; minutos: number }
 

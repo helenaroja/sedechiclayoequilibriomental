@@ -1,11 +1,10 @@
 import { fechaClave, type Registro } from './datos'
-import type { PatronCrudo } from './analisis'
+import type { DiaAnalizado, PatronCrudo } from './analisis'
 
 export type ResultadoIA<T> = { modo: 'ia'; datos: T } | { modo: 'demo' } | { modo: 'error'; mensaje: string }
 
 export type RespuestaAnalisis = {
-  emociones?: string[]
-  factores?: string[]
+  dias?: DiaAnalizado[]
   senalRiesgo?: boolean
   patrones?: PatronCrudo[]
 }

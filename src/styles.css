@@ -530,6 +530,14 @@ button {
   margin: 0.25rem 0 0.6rem;
 }
 
+.registro__bloque {
+  margin-top: 0.75rem;
+}
+
+.registro__bloque .insignia {
+  margin-bottom: 0.3rem;
+}
+
 .cargando {
   display: inline-flex;
   align-items: center;

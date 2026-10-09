@@ -9,6 +9,59 @@ export type PatronCrudo = {
   alternativas: Alternativa[]
 }
 
+export type DiaAnalizado = { fecha: string; emociones: string[]; factores: string[] }
+
+const EMOCIONES_DEMO = [
+  { etiqueta: 'Agobio', claves: ['abrumad', 'agobi', 'estres'] },
+  { etiqueta: 'Cansancio', claves: ['cansad', 'agotad'] },
+  { etiqueta: 'Tristeza', claves: ['triste', 'llore', 'llorar'] },
+  { etiqueta: 'Ansiedad', claves: ['ansi', 'nervios'] },
+  { etiqueta: 'Tranquilidad', claves: ['tranquil', 'relajad', 'contento', 'feliz'] },
+]
+
+const FACTORES_DEMO = [
+  { etiqueta: 'Tareas o estudios', claves: ['tarea', 'examen', 'estudi', 'clase', 'trabajo del curso'] },
+  { etiqueta: 'Familia', claves: ['mi mama', 'mi papa', 'familia', 'hermano', 'hermana'] },
+  { etiqueta: 'Dinero', claves: ['dinero', 'plata', 'pagar'] },
+  { etiqueta: 'Descanso', claves: ['dormi', 'sueno', 'insomnio'] },
+]
+
+function etiquetasQueCoinciden(texto: string, lista: { etiqueta: string; claves: string[] }[]): string[] {
+  const t = normalizarTexto(texto)
+  return lista.filter((item) => item.claves.some((c) => t.includes(normalizarTexto(c)))).map((item) => item.etiqueta)
+}
+
+function diasDemo(registros: Registro[]): DiaAnalizado[] {
+  const porDia = new Map<string, string>()
+  for (const r of registros) {
+    const clave = fechaClave(r.creado)
+    porDia.set(clave, `${porDia.get(clave) ?? ''} ${r.texto}`)
+  }
+  return [...porDia.entries()].map(([fecha, texto]) => ({
+    fecha,
+    emociones: etiquetasQueCoinciden(texto, EMOCIONES_DEMO),
+    factores: etiquetasQueCoinciden(texto, FACTORES_DEMO),
+  }))
+}
+
+export function aplicarDias(registros: Registro[], dias: DiaAnalizado[]): Registro[] {
+  const porFecha = new Map(
+    dias
+      .filter((d) => typeof d.fecha === 'string')
+      .map((d) => [
+        d.fecha,
+        {
+          emociones: Array.isArray(d.emociones) ? d.emociones.filter((x) => typeof x === 'string') : [],
+          factores: Array.isArray(d.factores) ? d.factores.filter((x) => typeof x === 'string') : [],
+        },
+      ]),
+  )
+  return registros.map((r) => {
+    const datos = porFecha.get(fechaClave(r.creado))
+    return datos ? { ...r, emociones: datos.emociones, factores: datos.factores } : r
+  })
+}
+
 const REGLAS: (Omit<PatronCrudo, 'fechas' | 'extractos'> & { claves: string[] })[] = [
   {
     nombre: 'Acumulación de tareas',
@@ -93,8 +146,8 @@ const REGLAS: (Omit<PatronCrudo, 'fechas' | 'extractos'> & { claves: string[] })
   },
 ]
 
-export function analizarDemo(registros: Registro[]): PatronCrudo[] {
-  return REGLAS.map((regla) => {
+export function analizarDemo(registros: Registro[]): { patrones: PatronCrudo[]; dias: DiaAnalizado[] } {
+  const patrones = REGLAS.map((regla) => {
     const coincidentes = registros.filter((r) =>
       regla.claves.some((clave) => normalizarTexto(r.texto).includes(normalizarTexto(clave))),
     )
@@ -107,6 +160,7 @@ export function analizarDemo(registros: Registro[]): PatronCrudo[] {
       extractos: coincidentes.map((r) => ({ fecha: fechaClave(r.creado), cita: r.texto })),
     }
   })
+  return { patrones, dias: diasDemo(registros) }
 }
 
 function recortar(texto: string): string {

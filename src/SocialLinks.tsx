@@ -32,15 +32,6 @@ const REDES: { id: keyof typeof UCV_LINKS.redes; nombre: string; icono: ReactNod
       </svg>
     ),
   },
-  {
-    id: 'x',
-    nombre: 'X (antes Twitter)',
-    icono: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-        <path d="M4 4l16 16M20 4L4 20" />
-      </svg>
-    ),
-  },
 ]
 
 function SocialLinks() {
@@ -50,27 +41,20 @@ function SocialLinks() {
         Encuéntranos en nuestras redes sociales
       </h2>
       <ul className="redes__lista">
-        {REDES.map((red) => {
-          const url = UCV_LINKS.redes[red.id]
-          if (!url) {
-            return (
-              <li key={red.id}>
-                <span className="red red--pendiente" aria-disabled="true" title="Enlace pendiente de verificación">
-                  {red.icono}
-                  <span>{red.nombre}</span>
-                </span>
-              </li>
-            )
-          }
-          return (
-            <li key={red.id}>
-              <a className="red" href={url} target="_blank" rel="noopener noreferrer" aria-label={`${red.nombre} de la UCV Perú`}>
-                {red.icono}
-                <span>{red.nombre}</span>
-              </a>
-            </li>
-          )
-        })}
+        {REDES.map((red) => (
+          <li key={red.id}>
+            <a
+              className="red"
+              href={UCV_LINKS.redes[red.id]}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${red.nombre} de la UCV Perú`}
+            >
+              {red.icono}
+              <span>{red.nombre}</span>
+            </a>
+          </li>
+        ))}
       </ul>
     </section>
   )

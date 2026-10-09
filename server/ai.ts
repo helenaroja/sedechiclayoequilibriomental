@@ -21,10 +21,11 @@ Reglas obligatorias:
 - En "extractos" incluye, para cada fecha, una cita COPIADA TEXTUALMENTE del registro de ese día (máximo 25 palabras) que muestre la situación. No parafrasees ni cambies una palabra.
 - Usa lenguaje prudente ("podría", "parece"). No diagnostiques ni menciones trastornos. No recomiendes medicamentos.
 - Propón dos alternativas por patrón. Cada una debe ser una acción concreta de máximo 15 minutos.
+- En "dias" incluye una entrada por cada fecha con relato: las emociones y factores (situaciones, personas, tareas, etc.) que el texto menciona explícitamente ese día. Si no hay ninguno, deja la lista vacía.
 - Pon "senalRiesgo" en true solo si el relato expresa riesgo para la vida o autolesión.
 
 Responde únicamente con JSON válido con esta forma:
-{"emociones": string[], "factores": string[], "senalRiesgo": boolean, "patrones": [{"nombre": string, "observacion": string, "fechas": string[], "extractos": [{"fecha": string, "cita": string}], "efecto": string, "alternativas": [{"titulo": string, "explicacion": string, "paso": string, "minutos": number}]}]}
+{"dias": [{"fecha": string, "emociones": string[], "factores": string[]}], "senalRiesgo": boolean, "patrones": [{"nombre": string, "observacion": string, "fechas": string[], "extractos": [{"fecha": string, "cita": string}], "efecto": string, "alternativas": [{"titulo": string, "explicacion": string, "paso": string, "minutos": number}]}]}
 Si no hay patrones respaldados, devuelve "patrones": [].`
 
 function sistemaChat(contexto: string): string {
@@ -114,13 +115,21 @@ export async function procesarSolicitud(
 
   try {
     if (solicitud.tipo === 'analizar') {
-      const texto = await llamarClaude(
-        config,
-        SISTEMA_ANALISIS,
-        [{ role: 'user', content: formatearEntradas(solicitud.entradas) }],
-        2000,
-      )
-      return { status: 200, body: { resultado: extraerJson(texto) } }
+      let ultimoError: unknown
+      for (let intento = 0; intento < 2; intento++) {
+        try {
+          const texto = await llamarClaude(
+            config,
+            SISTEMA_ANALISIS,
+            [{ role: 'user', content: formatearEntradas(solicitud.entradas) }],
+            2500,
+          )
+          return { status: 200, body: { resultado: extraerJson(texto) } }
+        } catch (error) {
+          ultimoError = error
+        }
+      }
+      throw ultimoError
     }
 
     const primerUsuario = solicitud.historial.findIndex((m) => m.rol === 'usuario')
@@ -135,7 +144,8 @@ export async function procesarSolicitud(
       600,
     )
     return { status: 200, body: { resultado: extraerJson(texto) } }
-  } catch {
+  } catch (error) {
+    console.error('Fallo al consultar la IA:', error)
     return { status: 502, body: { error: 'fallo_ia' } }
   }
 }

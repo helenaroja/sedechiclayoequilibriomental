@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { analizarConIA } from '../lib/api'
-import { analizarDemo, normalizarPatrones, type PatronCrudo } from '../lib/analisis'
+import {
+  analizarDemo,
+  aplicarDias,
+  normalizarPatrones,
+  type DiaAnalizado,
+  type PatronCrudo,
+} from '../lib/analisis'
 import { formatearFecha, nuevoId, type Registro } from '../lib/datos'
 import { hayRiesgo } from '../lib/seguridad'
 import type { Props } from '../lib/vista'
@@ -77,19 +83,24 @@ function Escribir({ estado, actualizar, ir }: Props) {
     }
 
     let crudos: PatronCrudo[]
+    let dias: DiaAnalizado[]
     let modo: 'ia' | 'demo'
     if (respuesta.modo === 'ia') {
       crudos = respuesta.datos.patrones ?? []
+      dias = respuesta.datos.dias ?? []
       modo = 'ia'
       if (respuesta.datos.senalRiesgo) setAyuda(true)
     } else {
-      crudos = analizarDemo(usados)
+      const demo = analizarDemo(usados)
+      crudos = demo.patrones
+      dias = demo.dias
       modo = 'demo'
     }
 
     const patrones = normalizarPatrones(crudos, usados, modo)
     actualizar((e) => ({
       ...e,
+      registros: aplicarDias(e.registros, dias),
       patrones,
       analisis: { creado: new Date().toISOString(), registrosUsados: usados.length, modo },
     }))

@@ -1,16 +1,31 @@
 import { useState } from 'react'
-import { formatearFecha, nuevoId, type Accion } from '../lib/datos'
+import { proponerRutinaConIA, MENSAJE_ERROR_TECNICO, type RespuestaRutina } from '../lib/api'
+import { fechaClave, formatearFecha, formatearDiaCorto, nuevoId, type Accion, type Alternativa, type Patron } from '../lib/datos'
 import type { Props } from '../lib/vista'
 
-function RegistroAccion({ accion, actualizar }: { accion: Accion } & Pick<Props, 'actualizar'>) {
+type Instruccion = 'nueva' | 'mas_simple' | 'otra'
+
+function desdeRutina(r: RespuestaRutina): Alternativa {
+  const pasos = Array.isArray(r.pasos) ? r.pasos.filter((p) => typeof p === 'string' && p.trim()) : []
+  return {
+    titulo: r.titulo,
+    explicacion: r.porQue,
+    paso: pasos.join(' → '),
+    minutos: Number.isFinite(r.duracionMinutos) ? r.duracionMinutos : 10,
+    pasos,
+    porQue: r.porQue,
+    problema: r.problema,
+    alternativaSimple: r.alternativaSimple,
+    origen: 'ia',
+  }
+}
+
+function RegistroAccion({ accion, actualizar }: { accion: Accion; actualizar: Props['actualizar'] }) {
   const [realizada, setRealizada] = useState<boolean | null>(null)
   const [sensacion, setSensacion] = useState('')
 
   function cambiarEstado(nuevo: Accion['estado']) {
-    actualizar((e) => ({
-      ...e,
-      acciones: e.acciones.map((a) => (a.id === accion.id ? { ...a, estado: nuevo } : a)),
-    }))
+    actualizar((e) => ({ ...e, acciones: e.acciones.map((a) => (a.id === accion.id ? { ...a, estado: nuevo } : a)) }))
   }
 
   function guardarSeguimiento() {
@@ -19,13 +34,7 @@ function RegistroAccion({ accion, actualizar }: { accion: Accion } & Pick<Props,
       ...e,
       acciones: e.acciones.map((a) =>
         a.id === accion.id
-          ? {
-              ...a,
-              seguimientos: [
-                ...a.seguimientos,
-                { fecha: new Date().toISOString(), realizada, sensacion: sensacion.trim() },
-              ],
-            }
+          ? { ...a, seguimientos: [...a.seguimientos, { fecha: new Date().toISOString(), realizada, sensacion: sensacion.trim() }] }
           : a,
       ),
     }))
@@ -36,35 +45,19 @@ function RegistroAccion({ accion, actualizar }: { accion: Accion } & Pick<Props,
   return (
     <div className="lista__item">
       <p>
-        <strong>Registrar cómo fue:</strong> ¿la pudiste hacer?
+        <strong>¿Cómo fue?</strong> Registra si la intentaste y cómo te sentiste.
       </p>
       <div className="acciones">
-        <button
-          type="button"
-          className={`btn btn--pequeno ${realizada === true ? 'btn--activo' : 'btn--suave'}`}
-          aria-pressed={realizada === true}
-          onClick={() => setRealizada(true)}
-        >
-          Sí, la hice
+        <button type="button" className={`btn btn--pequeno ${realizada === true ? 'btn--activo' : 'btn--suave'}`} aria-pressed={realizada === true} onClick={() => setRealizada(true)}>
+          Sí, la intenté
         </button>
-        <button
-          type="button"
-          className={`btn btn--pequeno ${realizada === false ? 'btn--activo' : 'btn--suave'}`}
-          aria-pressed={realizada === false}
-          onClick={() => setRealizada(false)}
-        >
+        <button type="button" className={`btn btn--pequeno ${realizada === false ? 'btn--activo' : 'btn--suave'}`} aria-pressed={realizada === false} onClick={() => setRealizada(false)}>
           No pude hacerla
         </button>
       </div>
       <label className="texto-pequeno" style={{ display: 'block', marginTop: '0.75rem' }}>
-        ¿Cómo te sentiste después?
-        <input
-          className="campo"
-          type="text"
-          value={sensacion}
-          onChange={(e) => setSensacion(e.target.value)}
-          placeholder="Por ejemplo: menos agobiado/a, igual, con más ganas…"
-        />
+        ¿Cómo te fue o cómo te sentiste después?
+        <input className="campo" type="text" value={sensacion} onChange={(e) => setSensacion(e.target.value)} placeholder="Por ejemplo: me costó menos empezar, o no tuve tiempo…" />
       </label>
       <div className="acciones">
         <button type="button" className="btn btn--secundario btn--pequeno" onClick={guardarSeguimiento} disabled={realizada === null}>
@@ -85,7 +78,7 @@ function RegistroAccion({ accion, actualizar }: { accion: Accion } & Pick<Props,
         <ul className="texto-pequeno">
           {accion.seguimientos.slice(-3).map((s) => (
             <li key={s.fecha}>
-              {formatearFecha(s.fecha)}: {s.realizada ? 'la hiciste' : 'no la hiciste'}
+              {formatearFecha(s.fecha)}: {s.realizada ? 'la intentaste' : 'no la pudiste hacer'}
               {s.sensacion ? ` · ${s.sensacion}` : ''}
             </li>
           ))}
@@ -96,17 +89,21 @@ function RegistroAccion({ accion, actualizar }: { accion: Accion } & Pick<Props,
 }
 
 function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
+  const disponibles = estado.patrones.filter((p) => p.interpretacion !== 'descartado')
   const [seleccionado, setSeleccionado] = useState<string | undefined>(patronInicial)
-  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [mensaje, setMensaje] = useState<{ tipo: 'info' | 'error'; texto: string } | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const [editando, setEditando] = useState(false)
+  const [pasosEditados, setPasosEditados] = useState('')
 
-  const patron = estado.patrones.find((p) => p.id === (seleccionado ?? patronInicial)) ?? estado.patrones[0]
+  const patron: Patron | undefined = disponibles.find((p) => p.id === (seleccionado ?? patronInicial)) ?? disponibles[0]
 
   if (!patron) {
     return (
       <>
         <header className="encabezado-vista">
           <h2>Romper el ciclo</h2>
-          <p>Cuando la IA identifique un patrón, aquí encontrarás una propuesta pequeña para probar.</p>
+          <p>Cuando haya un patrón que confirmar, aquí encontrarás una propuesta hecha a partir de lo que escribiste.</p>
         </header>
         <section className="tarjeta vacio">
           <p>Todavía no hay patrones para trabajar.</p>
@@ -118,14 +115,43 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
     )
   }
 
-  const alternativa = patron.alternativas[patron.alternativaActual]
+  const propuesta = patron.alternativas[patron.alternativaActual]
+  const esIA = propuesta?.origen === 'ia'
   const acciones = estado.acciones.filter((a) => a.patronId === patron.id)
   const enCurso = acciones.find((a) => a.estado === 'probando')
 
+  function aplicarPropuesta(alternativas: Alternativa[], actual = 0) {
+    actualizar((e) => ({
+      ...e,
+      patrones: e.patrones.map((p) => (p.id === patron!.id ? { ...p, alternativas, alternativaActual: actual, descartada: false } : p)),
+    }))
+  }
+
+  async function generar(instruccion: Instruccion) {
+    setCargando(true)
+    setMensaje(null)
+    const respuesta = await proponerRutinaConIA(
+      { nombre: patron!.nombre, observacion: patron!.observacion, evidencia: patron!.evidencia },
+      estado.registros,
+      instruccion,
+    )
+    setCargando(false)
+
+    if (respuesta.modo === 'ia') {
+      aplicarPropuesta([desdeRutina(respuesta.datos)])
+      return
+    }
+    if (respuesta.modo === 'demo') {
+      setMensaje({ tipo: 'info', texto: 'Sin IA disponible en este momento: mostramos propuestas fijas de demostración.' })
+      return
+    }
+    setMensaje({ tipo: 'error', texto: respuesta.mensaje || MENSAJE_ERROR_TECNICO })
+  }
+
   function intentar() {
-    if (!alternativa) return
+    if (!propuesta) return
     if (enCurso) {
-      setMensaje('Ya estás probando una propuesta para este patrón. Regístrala abajo antes de iniciar otra.')
+      setMensaje({ tipo: 'info', texto: 'Ya estás probando una propuesta para este patrón. Regístrala abajo antes de iniciar otra.' })
       return
     }
     actualizar((e) => ({
@@ -134,9 +160,9 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
         ...e.acciones,
         {
           id: nuevoId(),
-          patronId: patron.id,
-          patronNombre: patron.nombre,
-          alternativa,
+          patronId: patron!.id,
+          patronNombre: patron!.nombre,
+          alternativa: propuesta,
           estado: 'probando',
           seguimientos: [],
           comentarios: [],
@@ -144,51 +170,46 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
         },
       ],
     }))
-    setMensaje('Anotado. Cuando la pruebes, regístrala abajo para ver cómo te fue.')
+    setMensaje({ tipo: 'info', texto: 'Anotado. Cuando la pruebes, regístrala abajo para ver cómo te fue.' })
   }
 
-  function otraAlternativa() {
-    if (patron.alternativas.length < 2) {
-      setMensaje('Por ahora no tenemos otra alternativa para este patrón.')
+  function otra() {
+    if (esIA) {
+      void generar('otra')
       return
     }
-    actualizar((e) => ({
-      ...e,
-      patrones: e.patrones.map((p) =>
-        p.id === patron.id
-          ? { ...p, alternativaActual: (p.alternativaActual + 1) % p.alternativas.length, descartada: false }
-          : p,
-      ),
-    }))
-    setMensaje(null)
+    if (patron!.alternativas.length < 2) {
+      setMensaje({ tipo: 'info', texto: 'Por ahora no tenemos otra propuesta de demostración para este patrón.' })
+      return
+    }
+    aplicarPropuesta(patron!.alternativas, (patron!.alternativaActual + 1) % patron!.alternativas.length)
   }
 
-  function noEsLoQueNecesito() {
-    actualizar((e) => ({
-      ...e,
-      patrones: e.patrones.map((p) => (p.id === patron.id ? { ...p, descartada: true } : p)),
-    }))
-    setMensaje('Gracias por decírnoslo. Puedes contarnos qué necesitas en el chat o escribir otro día.')
+  function rechazar() {
+    actualizar((e) => ({ ...e, patrones: e.patrones.map((p) => (p.id === patron!.id ? { ...p, descartada: true } : p)) }))
+    setMensaje({ tipo: 'info', texto: 'Gracias por decírnoslo. Puedes pedir otra propuesta o contarnos qué necesitas en el chat.' })
   }
 
-  function verDeNuevo() {
-    actualizar((e) => ({
-      ...e,
-      patrones: e.patrones.map((p) => (p.id === patron.id ? { ...p, descartada: false } : p)),
-    }))
-    setMensaje(null)
+  function guardarEdicion() {
+    if (!propuesta) return
+    const pasos = pasosEditados.split('\n').map((p) => p.trim()).filter(Boolean)
+    if (pasos.length === 0) return
+    const modificada: Alternativa = { ...propuesta, pasos, paso: pasos.join(' → ') }
+    const nuevas = patron!.alternativas.map((a, i) => (i === patron!.alternativaActual ? modificada : a))
+    aplicarPropuesta(nuevas, patron!.alternativaActual)
+    setEditando(false)
   }
 
   return (
     <>
       <header className="encabezado-vista">
         <h2>Romper el ciclo</h2>
-        <p>Una acción pequeña para probar. Tú decides si la intentas y qué tan útil te resulta.</p>
+        <p>Una propuesta pequeña, basada en lo que escribiste. Tú decides si la intentas, la cambias o la descartas.</p>
       </header>
 
-      {estado.patrones.length > 1 && (
+      {disponibles.length > 1 && (
         <div className="acciones" style={{ marginTop: 0, marginBottom: '1rem' }}>
-          {estado.patrones.map((p) => (
+          {disponibles.map((p) => (
             <button
               key={p.id}
               type="button"
@@ -196,6 +217,7 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
               onClick={() => {
                 setSeleccionado(p.id)
                 setMensaje(null)
+                setEditando(false)
               }}
             >
               {p.nombre}
@@ -207,72 +229,147 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
       <section className="tarjeta">
         <p className="texto-pequeno">Patrón que quieres trabajar</p>
         <h3>{patron.nombre}</h3>
+        <p className="texto-pequeno">{patron.observacion}</p>
 
         {patron.descartada ? (
           <>
-            <p>Esta propuesta no encaja contigo por ahora. Puedes contarnos qué necesitas en el chat o volver a verla.</p>
+            <p>Esta propuesta no encaja contigo por ahora. Puedes volver a verla, pedir una distinta o contarnos qué necesitas en el chat.</p>
             <div className="acciones">
-              <button type="button" className="btn btn--suave" onClick={verDeNuevo}>
+              <button type="button" className="btn btn--suave" onClick={() => aplicarPropuesta(patron.alternativas, patron.alternativaActual)}>
                 Volver a ver la propuesta
+              </button>
+              <button type="button" className="btn btn--principal" onClick={() => generar('otra')} disabled={cargando}>
+                Pedir otra propuesta
               </button>
               <button type="button" className="btn btn--suave" onClick={() => ir('chat')}>
                 Hablar en el chat
               </button>
             </div>
           </>
-        ) : alternativa ? (
+        ) : !propuesta ? (
+          <div className="acciones">
+            <button type="button" className="btn btn--principal" onClick={() => generar('nueva')} disabled={cargando}>
+              Crear propuesta personalizada
+            </button>
+          </div>
+        ) : editando ? (
+          <div className="tarjeta tarjeta--suave">
+            <p>
+              <strong>Modifica los pasos</strong> (uno por línea):
+            </p>
+            <textarea className="campo-texto" style={{ minHeight: '140px' }} aria-label="Pasos de la propuesta" value={pasosEditados} onChange={(e) => setPasosEditados(e.target.value)} />
+            <div className="acciones">
+              <button type="button" className="btn btn--principal btn--pequeno" onClick={guardarEdicion}>
+                Guardar cambios
+              </button>
+              <button type="button" className="btn btn--suave btn--pequeno" onClick={() => setEditando(false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
           <>
             <div className="tarjeta tarjeta--suave">
+              <h3>{propuesta.titulo}</h3>
+              {propuesta.problema && (
+                <p>
+                  <strong>Lo que observé:</strong> {propuesta.problema}
+                </p>
+              )}
+              {propuesta.porQue && (
+                <p>
+                  <strong>Por qué podría ayudar:</strong> {propuesta.porQue}
+                </p>
+              )}
+              {!propuesta.porQue && (
+                <p>
+                  <strong>Propuesta de cambio:</strong> {propuesta.explicacion}
+                </p>
+              )}
+              {propuesta.pasos && propuesta.pasos.length > 0 ? (
+                <ol>
+                  {propuesta.pasos.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ol>
+              ) : (
+                <p>
+                  <strong>Acción concreta:</strong> {propuesta.paso}
+                </p>
+              )}
               <p>
-                <strong>Propuesta de cambio:</strong> {alternativa.explicacion}
+                <strong>Duración aproximada:</strong> {propuesta.minutos} minutos
               </p>
-              <p>
-                <strong>Acción concreta:</strong> {alternativa.paso}
-              </p>
-              <p>
-                <strong>Tiempo estimado:</strong> {alternativa.minutos} minutos
-              </p>
-              <p className="texto-pequeno">
-                <strong>Objetivo:</strong> comprobar si empezar con algo pequeño te ayuda a sentir menos saturación.
-              </p>
+              {propuesta.alternativaSimple && (
+                <p className="texto-pequeno">
+                  <strong>Si es un día difícil:</strong> {propuesta.alternativaSimple}
+                </p>
+              )}
+              {propuesta.origen === 'demo' && <p className="texto-pequeno">Propuesta de demostración, no generada con IA.</p>}
             </div>
 
             <div className="acciones">
               <button type="button" className="btn btn--principal" onClick={intentar}>
-                Quiero intentarlo
+                Aceptar y probar
               </button>
-              <button type="button" className="btn btn--secundario" onClick={otraAlternativa}>
-                Probar otra alternativa
+              <button
+                type="button"
+                className="btn btn--secundario"
+                onClick={() => {
+                  setPasosEditados((propuesta.pasos ?? [propuesta.paso]).join('\n'))
+                  setEditando(true)
+                }}
+              >
+                Modificar
               </button>
-              <button type="button" className="btn btn--peligro" onClick={noEsLoQueNecesito}>
+              {esIA ? (
+                <button type="button" className="btn btn--suave" onClick={() => generar('mas_simple')} disabled={cargando}>
+                  Pedir una versión más sencilla
+                </button>
+              ) : (
+                <button type="button" className="btn btn--suave" onClick={otra} disabled={cargando}>
+                  Probar otra alternativa
+                </button>
+              )}
+              <button type="button" className="btn btn--peligro" onClick={rechazar}>
                 No es lo que necesito
               </button>
             </div>
+            {esIA && (
+              <div className="acciones">
+                <button type="button" className="btn btn--suave btn--pequeno" onClick={() => generar('otra')} disabled={cargando}>
+                  Pedir otra propuesta
+                </button>
+              </div>
+            )}
           </>
-        ) : null}
+        )}
 
-        {mensaje && <p className="aviso" role="status">{mensaje}</p>}
+        {cargando && <p className="cargando">Preparando una propuesta a partir de tus registros…</p>}
+        {mensaje && (
+          <p role="status" className={`aviso ${mensaje.tipo === 'error' ? 'aviso--error' : ''}`}>
+            {mensaje.texto}
+          </p>
+        )}
       </section>
 
       {acciones.length > 0 && (
         <section className="tarjeta">
-          <h3>Acciones que has probado para este patrón</h3>
+          <h3>Propuestas que has probado para este patrón</h3>
           <ul className="lista">
             {acciones.map((a) => (
               <li key={a.id} className="lista__item">
                 <div className="fila-entre">
                   <strong>{a.alternativa.titulo}</strong>
-                  <span className="insignia">
-                    {a.estado === 'probando' ? 'En prueba' : a.estado === 'completada' ? 'Completada' : 'Pendiente'}
-                  </span>
+                  <span className="insignia">{a.estado === 'probando' ? 'En prueba' : a.estado === 'completada' ? 'Completada' : 'Pendiente'}</span>
                 </div>
-                <p className="texto-pequeno">{a.alternativa.explicacion}</p>
+                <p className="texto-pequeno">Iniciada el {formatearDiaCorto(fechaClave(a.creada))}.</p>
                 <RegistroAccion accion={a} actualizar={actualizar} />
               </li>
             ))}
           </ul>
           <p className="texto-pequeno">
-            Registrar cómo te fue muestra tu experiencia personal. No demuestra que la acción haya causado un cambio.
+            Registrar cómo te fue refleja tu experiencia. No demuestra por sí solo que la propuesta haya causado un cambio.
           </p>
         </section>
       )}

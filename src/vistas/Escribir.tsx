@@ -1,18 +1,13 @@
 import { useState } from 'react'
 import { analizarConIA } from '../lib/api'
-import {
-  analizarDemo,
-  aplicarDias,
-  normalizarPatrones,
-  type DiaAnalizado,
-  type PatronCrudo,
-} from '../lib/analisis'
+import { analizarDemo, aplicarAnalisis, normalizarPatrones, type DiaCrudo, type PatronCrudo } from '../lib/analisis'
 import { formatearFecha, nuevoId, type Registro } from '../lib/datos'
+import { diasConRegistro } from '../lib/racha'
 import { hayRiesgo } from '../lib/seguridad'
 import type { Props } from '../lib/vista'
 import AvisoAyuda from './AvisoAyuda'
+import { BannerRacha } from './Racha'
 
-const MINIMO_REGISTROS = 3
 const MAXIMO_REGISTROS_ANALISIS = 30
 
 type Mensaje = { tipo: 'ok' | 'error' | 'info'; texto: string }
@@ -23,10 +18,8 @@ function Escribir({ estado, actualizar, ir }: Props) {
   const [cargando, setCargando] = useState(false)
   const [ayuda, setAyuda] = useState(false)
 
-  function agregarRegistro(texto: string): Registro {
-    const registro: Registro = { id: nuevoId(), creado: new Date().toISOString(), texto }
-    actualizar((e) => ({ ...e, registros: [...e.registros, registro] }))
-    return registro
+  function crearRegistro(texto: string): Registro {
+    return { id: nuevoId(), creado: new Date().toISOString(), texto }
   }
 
   function guardar() {
@@ -35,7 +28,8 @@ function Escribir({ estado, actualizar, ir }: Props) {
       setMensaje({ tipo: 'error', texto: 'Escribe algo sobre tu día antes de guardarlo.' })
       return
     }
-    const registro = agregarRegistro(texto)
+    const registro = crearRegistro(texto)
+    actualizar((e) => ({ ...e, registros: [...e.registros, registro] }))
     setBorrador('')
     setAyuda(hayRiesgo(texto))
     setMensaje({ tipo: 'ok', texto: `Tu día quedó guardado el ${formatearFecha(registro.creado)}.` })
@@ -50,27 +44,20 @@ function Escribir({ estado, actualizar, ir }: Props) {
     if (!estado.consentimiento) {
       setMensaje({
         tipo: 'error',
-        texto: 'Para analizar tus registros necesitamos tu permiso. Marca la casilla de abajo y vuelve a intentarlo.',
+        texto: 'Para analizar tu día necesitamos tu permiso para enviarlo a un servicio de IA. Marca la casilla de abajo.',
       })
       return
     }
 
-    const nuevo = texto ? agregarRegistro(texto) : null
-    if (texto) setBorrador('')
+    const nuevo = texto ? crearRegistro(texto) : null
+    if (nuevo) {
+      actualizar((e) => ({ ...e, registros: [...e.registros, nuevo] }))
+      setBorrador('')
+    }
     setAyuda(hayRiesgo(texto))
 
     const registros = nuevo ? [...estado.registros, nuevo] : estado.registros
-    const usados = [...registros]
-      .sort((a, b) => a.creado.localeCompare(b.creado))
-      .slice(-MAXIMO_REGISTROS_ANALISIS)
-
-    if (usados.length < MINIMO_REGISTROS) {
-      setMensaje({
-        tipo: 'info',
-        texto: `Tu día quedó guardado. Necesitas al menos ${MINIMO_REGISTROS} registros para comparar y buscar patrones; por ahora tienes ${usados.length}.`,
-      })
-      return
-    }
+    const usados = [...registros].sort((a, b) => a.creado.localeCompare(b.creado)).slice(-MAXIMO_REGISTROS_ANALISIS)
 
     setCargando(true)
     setMensaje(null)
@@ -78,16 +65,16 @@ function Escribir({ estado, actualizar, ir }: Props) {
     setCargando(false)
 
     if (respuesta.modo === 'error') {
-      setMensaje({ tipo: 'error', texto: `${respuesta.mensaje} Tu registro sí quedó guardado.` })
+      setMensaje({ tipo: 'error', texto: respuesta.mensaje })
       return
     }
 
     let crudos: PatronCrudo[]
-    let dias: DiaAnalizado[]
+    let dias: DiaCrudo[]
     let modo: 'ia' | 'demo'
     if (respuesta.modo === 'ia') {
       crudos = respuesta.datos.patrones ?? []
-      dias = respuesta.datos.dias ?? []
+      dias = (respuesta.datos.dias ?? []) as DiaCrudo[]
       modo = 'ia'
       if (respuesta.datos.senalRiesgo) setAyuda(true)
     } else {
@@ -97,20 +84,23 @@ function Escribir({ estado, actualizar, ir }: Props) {
       modo = 'demo'
     }
 
-    const patrones = normalizarPatrones(crudos, usados, modo)
+    const creado = new Date().toISOString()
+    const patrones = normalizarPatrones(crudos, usados, modo, estado.patrones)
     actualizar((e) => ({
       ...e,
-      registros: aplicarDias(e.registros, dias),
+      registros: aplicarAnalisis(e.registros, dias, creado),
       patrones,
-      analisis: { creado: new Date().toISOString(), registrosUsados: usados.length, modo },
+      analisis: { creado, registrosUsados: usados.length, modo },
     }))
 
+    const diasDistintos = diasConRegistro(usados).size
+    const notaDatos =
+      diasDistintos < 2
+        ? ' Con un solo día todavía no podemos confirmar patrones; con más registros podremos compararlos.'
+        : ''
     setMensaje({
       tipo: 'ok',
-      texto:
-        patrones.length > 0
-          ? `Encontramos ${patrones.length} posible(s) patrón(es) en tus registros.`
-          : 'Por ahora no encontramos situaciones que se repitan en al menos dos días.',
+      texto: `Tu día quedó analizado.${notaDatos}${modo === 'demo' ? ' Este análisis es de demostración y no usa IA.' : ''}`,
     })
   }
 
@@ -121,20 +111,22 @@ function Escribir({ estado, actualizar, ir }: Props) {
         <p>Puedes contarme qué pasó, cómo te sentiste, qué te preocupó y qué hiciste durante el día.</p>
       </header>
 
+      <BannerRacha registros={estado.registros} compacto />
+
       {ayuda && <AvisoAyuda />}
 
       <section className="tarjeta">
         <textarea
           className="campo-texto"
           aria-label="Relato de tu día"
-          placeholder="Escribe libremente, no hay una forma correcta de hacerlo…"
+          placeholder="Escribe libremente, como te salga. No hay una forma correcta de hacerlo…"
           value={borrador}
           onChange={(e) => setBorrador(e.target.value)}
         />
 
         <p className="texto-pequeno">
-          Tu registro es personal. Se guarda en este dispositivo y no se sincroniza automáticamente entre dispositivos.
-          Solo se envía a un servicio de IA si lo permites.
+          Tu registro es personal y se guarda en este dispositivo; no se sincroniza automáticamente entre dispositivos.
+          Tu texto original se guarda tal como lo escribes. Solo se envía a un servicio de IA si lo permites.
         </p>
 
         <label className="casilla">
@@ -161,7 +153,7 @@ function Escribir({ estado, actualizar, ir }: Props) {
           </button>
         </div>
 
-        {cargando && <p className="cargando">Analizando tus registros…</p>}
+        {cargando && <p className="cargando">Analizando tu día…</p>}
 
         {mensaje && (
           <p
@@ -172,8 +164,11 @@ function Escribir({ estado, actualizar, ir }: Props) {
           </p>
         )}
 
-        {estado.analisis && estado.patrones.length > 0 && mensaje?.tipo === 'ok' && (
+        {estado.analisis && mensaje?.tipo === 'ok' && (
           <div className="acciones">
+            <button type="button" className="btn btn--suave" onClick={() => ir('historial')}>
+              Ver mi interpretación
+            </button>
             <button type="button" className="btn btn--suave" onClick={() => ir('patrones')}>
               Ver mi patrón
             </button>

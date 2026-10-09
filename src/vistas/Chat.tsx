@@ -5,6 +5,15 @@ import { hayRiesgo } from '../lib/seguridad'
 import type { Props } from '../lib/vista'
 import AvisoAyuda from './AvisoAyuda'
 
+const SUGERENCIAS = [
+  '¿Cómo puedo dormir mejor?',
+  '¿Cómo puedo concentrarme en clase?',
+  '¿Cómo puedo organizar mi día?',
+  '¿Qué puedo hacer si estoy estresado?',
+  '¿Cómo puedo dejar de procrastinar?',
+  '¿Cómo puedo crear una rutina que pueda mantener?',
+]
+
 function Chat({ estado, actualizar }: Props) {
   const [texto, setTexto] = useState('')
   const [relacionCon, setRelacionCon] = useState('')
@@ -14,12 +23,12 @@ function Chat({ estado, actualizar }: Props) {
 
   const enPrueba = estado.acciones.filter((a) => a.estado === 'probando')
 
-  async function enviar(evento: FormEvent) {
-    evento.preventDefault()
-    const mensaje = texto.trim()
+  async function enviar(evento?: FormEvent, preguntaDirecta?: string) {
+    evento?.preventDefault()
+    const mensaje = (preguntaDirecta ?? texto).trim()
     if (!mensaje || cargando) return
     if (!estado.consentimiento) {
-      setError('Para conversar necesitamos tu permiso. Actívalo en "Cuéntame tu día" o en "Mis datos".')
+      setError('Para conversar necesitamos tu permiso para enviar mensajes a un servicio de IA. Actívalo en "Mis datos".')
       return
     }
 
@@ -42,7 +51,7 @@ function Chat({ estado, actualizar }: Props) {
     if (hayRiesgo(mensaje)) setAyuda(true)
     setCargando(true)
 
-    const respuesta = await conversarConIA(mensaje, estado.registros, historial)
+    const respuesta = await conversarConIA(mensaje, historial, estado.contextoChat ? estado.registros : [])
     setCargando(false)
 
     if (respuesta.modo === 'error') {
@@ -56,7 +65,7 @@ function Chat({ estado, actualizar }: Props) {
       if (respuesta.datos.senalRiesgo) setAyuda(true)
     } else {
       contenido =
-        'Estás en modo demostración: la conversación con IA no está disponible en este momento. Puedes seguir usando Cuéntame tu día y tu historial.'
+        'El asistente con IA no está disponible en este momento, así que no puedo responder tu pregunta. Puedes intentarlo de nuevo más tarde; tus registros siguen guardados.'
     }
 
     actualizar((e) => ({ ...e, chat: [...e.chat, { id: nuevoId(), rol: 'asistente', texto: contenido }] }))
@@ -67,18 +76,26 @@ function Chat({ estado, actualizar }: Props) {
       <header className="encabezado-vista">
         <h2>Conversemos</h2>
         <p>
-          Puedo ayudarte a pensar en tus días usando solo lo que has guardado. No recuerdo nada fuera de lo que aparece
-          aquí.
+          Puedes preguntarme sobre sueño, estudio, organización, emociones o cómo crear hábitos. Te respondo con pasos
+          prácticos y, si falta información, te pregunto.
         </p>
       </header>
 
       {ayuda && <AvisoAyuda />}
 
       <section className="tarjeta">
+        {estado.chat.length === 0 && (
+          <div className="acciones" style={{ marginTop: 0 }}>
+            {SUGERENCIAS.map((s) => (
+              <button key={s} type="button" className="btn btn--suave btn--pequeno" onClick={() => enviar(undefined, s)} disabled={cargando}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="chat" aria-live="polite">
-          {estado.chat.length === 0 && (
-            <p className="vacio">Cuéntame cómo va tu semana o qué te gustaría entender mejor.</p>
-          )}
+          {estado.chat.length === 0 && <p className="vacio">Escribe tu pregunta o elige una de las sugerencias.</p>}
           {estado.chat.map((m) => (
             <div key={m.id} className={`burbuja burbuja--${m.rol === 'usuario' ? 'usuario' : 'asistente'}`}>
               {m.texto}
@@ -87,11 +104,24 @@ function Chat({ estado, actualizar }: Props) {
           {cargando && <p className="cargando">Pensando…</p>}
         </div>
 
-        {error && <p className="aviso aviso--error" role="alert">{error}</p>}
+        {error && (
+          <p className="aviso aviso--error" role="alert">
+            {error}
+          </p>
+        )}
 
         {!estado.consentimiento && (
           <p className="aviso">Para conversar necesitamos tu permiso para enviar mensajes a un servicio de IA.</p>
         )}
+
+        <label className="texto-pequeno" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.6rem' }}>
+          <input
+            type="checkbox"
+            checked={estado.contextoChat}
+            onChange={(e) => actualizar((s) => ({ ...s, contextoChat: e.target.checked }))}
+          />
+          Usar mis registros para responder (si son relevantes). Está apagado por defecto.
+        </label>
 
         {enPrueba.length > 0 && (
           <label className="texto-pequeno" style={{ display: 'block', marginBottom: '0.6rem' }}>
@@ -107,12 +137,12 @@ function Chat({ estado, actualizar }: Props) {
           </label>
         )}
 
-        <form className="fila-chat" onSubmit={enviar}>
+        <form className="fila-chat" onSubmit={(e) => enviar(e)}>
           <input
             className="campo"
             type="text"
             aria-label="Escribe un mensaje"
-            placeholder="Escribe un mensaje…"
+            placeholder="Escribe tu pregunta…"
             maxLength={1000}
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
@@ -124,11 +154,7 @@ function Chat({ estado, actualizar }: Props) {
 
         {estado.chat.length > 0 && (
           <div className="acciones">
-            <button
-              type="button"
-              className="btn btn--peligro btn--pequeno"
-              onClick={() => actualizar((e) => ({ ...e, chat: [] }))}
-            >
+            <button type="button" className="btn btn--peligro btn--pequeno" onClick={() => actualizar((e) => ({ ...e, chat: [] }))}>
               Borrar conversación
             </button>
           </div>

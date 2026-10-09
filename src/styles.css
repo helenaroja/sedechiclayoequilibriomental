@@ -530,6 +530,106 @@ button {
   margin: 0.25rem 0 0.6rem;
 }
 
+.racha {
+  background: linear-gradient(135deg, #fff 0%, var(--durazno) 100%);
+  border-radius: 22px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--sombra);
+  margin-bottom: 1.25rem;
+}
+
+.racha--compacta {
+  padding: 0.85rem 1.1rem;
+}
+
+.racha__cifras {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.racha__numero {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.racha__numero strong {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 1.9rem;
+  color: var(--terracota);
+  margin-right: 0.25rem;
+}
+
+.racha__mensaje {
+  margin: 0.6rem 0 0;
+  color: var(--cafe-suave);
+}
+
+.racha .aviso {
+  margin: 0.75rem 0 0;
+}
+
+.fuego {
+  color: var(--terracota);
+  flex-shrink: 0;
+  animation: latido 2.4s ease-in-out infinite;
+}
+
+.fuego--apagado {
+  color: var(--rosa-fuerte);
+  animation: none;
+}
+
+@keyframes latido {
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.calendario {
+  max-width: 360px;
+}
+
+.calendario__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.capitalizada {
+  text-transform: capitalize;
+}
+
+.calendario__rejilla {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.3rem;
+  text-align: center;
+}
+
+.calendario__dia-semana {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--cafe-suave);
+}
+
+.calendario__celda {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: #fffdf9;
+  color: var(--cafe-suave);
+}
+
+.calendario__celda--registrado {
+  background: var(--terracota);
+  color: #fff;
+  font-weight: 700;
+}
+
 .registro__bloque {
   margin-top: 0.75rem;
 }

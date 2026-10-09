@@ -12,7 +12,7 @@ function Privacidad({ estado, actualizar }: Props) {
   }
 
   function eliminarTodo() {
-    if (!window.confirm('¿Eliminar todos tus registros, patrones, acciones y conversaciones? No se puede deshacer.')) return
+    if (!window.confirm('¿Eliminar todos tus registros, interpretaciones, patrones, propuestas, notas y conversaciones? No se puede deshacer.')) return
     actualizar((e) => ({
       ...e,
       registros: [],
@@ -22,6 +22,7 @@ function Privacidad({ estado, actualizar }: Props) {
       notas: [],
       analisis: undefined,
       consentimiento: false,
+      contextoChat: false,
     }))
   }
 
@@ -35,27 +36,35 @@ function Privacidad({ estado, actualizar }: Props) {
       <section className="tarjeta">
         <h3>Cómo se guardan tus datos</h3>
         <ul className="texto-pequeno">
-          <li>Tus registros, patrones, acciones y conversaciones se guardan solo en este navegador y dispositivo.</li>
+          <li>Tu texto original se guarda tal como lo escribiste, en este navegador y dispositivo.</li>
           <li>No se sincronizan automáticamente con otros dispositivos ni con otras personas.</li>
-          <li>Solo se envían a un servicio de IA (Anthropic) cuando analizas tus registros o conversas en el chat, y únicamente si das tu consentimiento.</li>
-          <li>No pedimos nombre completo, DNI ni otros datos innecesarios. Usa datos ficticios si estás haciendo una demostración.</li>
+          <li>No pedimos nombre completo, DNI ni otros datos innecesarios. En demostraciones usa datos ficticios.</li>
+        </ul>
+
+        <h3>Cuándo se envían datos a la IA</h3>
+        <ul className="texto-pequeno">
+          <li>
+            <strong>Analizar mi día:</strong> se envían los registros recientes (hasta 30) para interpretarlos y buscar patrones.
+          </li>
+          <li>
+            <strong>Propuestas en "Romper el ciclo":</strong> se envían el patrón elegido y tus últimos registros.
+          </li>
+          <li>
+            <strong>Chat:</strong> se envía tu mensaje. Tus registros solo se envían si activas "Usar mis registros para responder" en el chat.
+          </li>
         </ul>
 
         <label className="casilla">
-          <input
-            type="checkbox"
-            checked={estado.consentimiento}
-            onChange={(e) => actualizar((s) => ({ ...s, consentimiento: e.target.checked }))}
-          />
-          <span>Acepto el envío de mis relatos a un servicio de IA para su análisis.</span>
+          <input type="checkbox" checked={estado.consentimiento} onChange={(e) => actualizar((s) => ({ ...s, consentimiento: e.target.checked }))} />
+          <span>Acepto el envío de mis textos a un servicio de IA para las funciones anteriores.</span>
         </label>
       </section>
 
       <section className="tarjeta">
         <h3>Tus datos guardados</h3>
         <p>
-          {estado.registros.length} registro(s) · {estado.patrones.length} patrón(es) · {estado.acciones.length} acción(es)
-          · {estado.chat.length} mensaje(s)
+          {estado.registros.length} registro(s) · {estado.patrones.length} patrón(es) · {estado.acciones.length} propuesta(s)
+          · {(estado.notas ?? []).length} nota(s) · {estado.chat.length} mensaje(s)
         </p>
         <div className="acciones">
           <button type="button" className="btn btn--suave" onClick={exportar}>

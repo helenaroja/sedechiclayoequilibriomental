@@ -100,16 +100,6 @@ body {
   box-shadow: 0 0 0 4px var(--mostaza);
 }
 
-.welcome__button--primary {
-  background: var(--terracota);
-  color: #fff;
-  box-shadow: 0 10px 20px -10px rgba(194, 65, 12, 0.7);
-}
-
-.welcome__button--primary:hover {
-  background: var(--terracota-oscuro);
-}
-
 .welcome__button--secondary {
   background: var(--mostaza);
   color: var(--cafe);
@@ -129,4 +119,53 @@ body {
   .welcome__button {
     flex: 1;
   }
+}
+
+.welcome__social {
+  margin: 0 0 1.75rem;
+}
+
+.welcome__social-label {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--cafe-suave);
+}
+
+.social-icons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.social-icons__link {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--terracota);
+  box-shadow: 0 6px 14px -8px rgba(154, 52, 18, 0.6);
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.social-icons__link svg {
+  width: 20px;
+  height: 20px;
+}
+
+.social-icons__link:hover,
+.social-icons__link:focus-visible {
+  background: var(--terracota);
+  color: #fff;
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.social-icons__link:focus-visible {
+  box-shadow: 0 0 0 4px var(--mostaza);
 }

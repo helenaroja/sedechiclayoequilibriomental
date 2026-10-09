@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import { UCV_LINKS } from './config'
 
-const REDES = [
+const REDES: { id: keyof typeof UCV_LINKS.redes; nombre: string; icono: ReactNode }[] = [
   {
+    id: 'instagram',
     nombre: 'Instagram',
-    url: UCV_LINKS.redesSociales.instagram,
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="3" y="3" width="18" height="18" rx="5" />
@@ -13,8 +14,8 @@ const REDES = [
     ),
   },
   {
+    id: 'facebook',
     nombre: 'Facebook',
-    url: UCV_LINKS.redesSociales.facebook,
     icono: (
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M14 8V6.2c0-.9.3-1.4 1.5-1.4H17V2h-2.6C11.6 2 11 3.5 11 5.6V8H8.5v3H11v11h3V11h2.7l.4-3H14z" />
@@ -22,17 +23,8 @@ const REDES = [
     ),
   },
   {
-    nombre: 'X (Twitter)',
-    url: UCV_LINKS.redesSociales.x,
-    icono: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-        <path d="M4 4l16 16M20 4L4 20" />
-      </svg>
-    ),
-  },
-  {
+    id: 'youtube',
     nombre: 'YouTube',
-    url: UCV_LINKS.redesSociales.youtube,
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
         <rect x="2" y="5" width="20" height="14" rx="4" />
@@ -40,29 +32,45 @@ const REDES = [
       </svg>
     ),
   },
+  {
+    id: 'x',
+    nombre: 'X (antes Twitter)',
+    icono: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <path d="M4 4l16 16M20 4L4 20" />
+      </svg>
+    ),
+  },
 ]
 
 function SocialLinks() {
   return (
-    <section className="welcome__social" aria-labelledby="redes-titulo">
-      <p id="redes-titulo" className="welcome__social-label">
-        Redes sociales UCV Perú
-      </p>
-      <ul className="social-icons">
-        {REDES.map((red) => (
-          <li key={red.nombre}>
-            <a
-              className="social-icons__link"
-              href={red.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={red.nombre}
-              title={red.nombre}
-            >
-              {red.icono}
-            </a>
-          </li>
-        ))}
+    <section className="redes" aria-labelledby="redes-titulo">
+      <h2 id="redes-titulo" className="redes__titulo">
+        Encuéntranos en nuestras redes sociales
+      </h2>
+      <ul className="redes__lista">
+        {REDES.map((red) => {
+          const url = UCV_LINKS.redes[red.id]
+          if (!url) {
+            return (
+              <li key={red.id}>
+                <span className="red red--pendiente" aria-disabled="true" title="Enlace pendiente de verificación">
+                  {red.icono}
+                  <span>{red.nombre}</span>
+                </span>
+              </li>
+            )
+          }
+          return (
+            <li key={red.id}>
+              <a className="red" href={url} target="_blank" rel="noopener noreferrer" aria-label={`${red.nombre} de la UCV Perú`}>
+                {red.icono}
+                <span>{red.nombre}</span>
+              </a>
+            </li>
+          )
+        })}
       </ul>
     </section>
   )

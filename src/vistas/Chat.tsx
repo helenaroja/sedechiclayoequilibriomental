@@ -7,9 +7,12 @@ import AvisoAyuda from './AvisoAyuda'
 
 function Chat({ estado, actualizar }: Props) {
   const [texto, setTexto] = useState('')
+  const [relacionCon, setRelacionCon] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ayuda, setAyuda] = useState(false)
+
+  const enPrueba = estado.acciones.filter((a) => a.estado === 'probando')
 
   async function enviar(evento: FormEvent) {
     evento.preventDefault()
@@ -22,7 +25,18 @@ function Chat({ estado, actualizar }: Props) {
 
     const usuario = { id: nuevoId(), rol: 'usuario' as const, texto: mensaje }
     const historial = estado.chat.map((m) => ({ rol: m.rol, texto: m.texto }))
-    actualizar((e) => ({ ...e, chat: [...e.chat, usuario] }))
+    const accionId = relacionCon
+    actualizar((e) => ({
+      ...e,
+      chat: [...e.chat, usuario],
+      acciones: accionId
+        ? e.acciones.map((a) =>
+            a.id === accionId
+              ? { ...a, comentarios: [...(a.comentarios ?? []), { fecha: new Date().toISOString(), texto: mensaje }] }
+              : a,
+          )
+        : e.acciones,
+    }))
     setTexto('')
     setError(null)
     if (hayRiesgo(mensaje)) setAyuda(true)
@@ -77,6 +91,20 @@ function Chat({ estado, actualizar }: Props) {
 
         {!estado.consentimiento && (
           <p className="aviso">Para conversar necesitamos tu permiso para enviar mensajes a un servicio de IA.</p>
+        )}
+
+        {enPrueba.length > 0 && (
+          <label className="texto-pequeno" style={{ display: 'block', marginBottom: '0.6rem' }}>
+            Este mensaje es sobre una propuesta que estoy probando (opcional):
+            <select className="campo" value={relacionCon} onChange={(e) => setRelacionCon(e.target.value)}>
+              <option value="">No está relacionado</option>
+              {enPrueba.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.alternativa.titulo}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
 
         <form className="fila-chat" onSubmit={enviar}>

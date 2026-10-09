@@ -1,14 +1,31 @@
-import { diasAtras, fechaClave, formatearFecha } from '../lib/datos'
+import { useState } from 'react'
+import { diasAtras, fechaClave, formatearFecha, nuevoId } from '../lib/datos'
 import type { Props } from '../lib/vista'
 
-function Seguimiento({ estado, ir }: Props) {
+function Seguimiento({ estado, actualizar, ir }: Props) {
+  const [nota, setNota] = useState('')
   const haceSiete = diasAtras(7)
   const haceCatorce = diasAtras(14)
+  const notas = estado.notas ?? []
 
   function periodo(fecha: string) {
     if (fecha > haceSiete) return 'actual'
     if (fecha > haceCatorce) return 'anterior'
     return null
+  }
+
+  function agregarNota() {
+    const texto = nota.trim()
+    if (!texto) return
+    actualizar((e) => ({
+      ...e,
+      notas: [...(e.notas ?? []), { id: nuevoId(), creado: new Date().toISOString(), texto }],
+    }))
+    setNota('')
+  }
+
+  function borrarNota(id: string) {
+    actualizar((e) => ({ ...e, notas: (e.notas ?? []).filter((n) => n.id !== id) }))
   }
 
   const registrosPorPeriodo = { actual: 0, anterior: 0 }
@@ -59,6 +76,44 @@ function Seguimiento({ estado, ir }: Props) {
         </div>
       </section>
 
+      <section className="tarjeta">
+        <h3>Cambios que he notado</h3>
+        <p className="texto-pequeno">
+          Anota con tus palabras lo que percibes en tus días, por ejemplo: "esta semana me costó menos empezar".
+        </p>
+        <div className="fila-chat">
+          <input
+            className="campo"
+            type="text"
+            aria-label="Cambio que he notado"
+            placeholder="Escribe lo que notas…"
+            maxLength={500}
+            value={nota}
+            onChange={(e) => setNota(e.target.value)}
+          />
+          <button type="button" className="btn btn--principal" onClick={agregarNota} disabled={!nota.trim()}>
+            Agregar
+          </button>
+        </div>
+        {notas.length > 0 && (
+          <ul className="lista" style={{ marginTop: '1rem' }}>
+            {[...notas]
+              .sort((a, b) => b.creado.localeCompare(a.creado))
+              .map((n) => (
+                <li key={n.id} className="lista__item">
+                  <div className="fila-entre">
+                    <span className="texto-pequeno">{formatearFecha(n.creado)}</span>
+                    <button type="button" className="btn btn--peligro btn--pequeno" onClick={() => borrarNota(n.id)}>
+                      Eliminar
+                    </button>
+                  </div>
+                  <p>{n.texto}</p>
+                </li>
+              ))}
+          </ul>
+        )}
+      </section>
+
       {estado.patrones.length > 0 && (
         <section className="tarjeta">
           <h3>Patrones y su comparación</h3>
@@ -90,6 +145,7 @@ function Seguimiento({ estado, ir }: Props) {
           <ul className="lista">
             {estado.acciones.map((a) => {
               const ultimo = a.seguimientos[a.seguimientos.length - 1]
+              const comentarios = a.comentarios ?? []
               return (
                 <li key={a.id} className="lista__item">
                   <div className="fila-entre">
@@ -107,6 +163,20 @@ function Seguimiento({ estado, ir }: Props) {
                     </p>
                   ) : (
                     <p className="texto-pequeno">Aún no has registrado cómo te fue.</p>
+                  )}
+                  {comentarios.length > 0 && (
+                    <div className="registro__bloque">
+                      <p className="texto-pequeno">
+                        <strong>Comentarios desde el chat:</strong>
+                      </p>
+                      <ul className="texto-pequeno">
+                        {comentarios.map((c) => (
+                          <li key={c.fecha}>
+                            {formatearFecha(c.fecha)}: "{c.texto}"
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </li>
               )

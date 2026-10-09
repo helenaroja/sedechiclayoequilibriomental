@@ -139,6 +139,7 @@ function RomperCiclo({ estado, actualizar, ir, patronInicial }: Props) {
           alternativa,
           estado: 'probando',
           seguimientos: [],
+          comentarios: [],
           creada: new Date().toISOString(),
         },
       ],

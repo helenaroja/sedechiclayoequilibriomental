@@ -34,10 +34,13 @@ export type Accion = {
   alternativa: Alternativa
   estado: 'probando' | 'completada' | 'pendiente'
   seguimientos: Seguimiento[]
+  comentarios: { fecha: string; texto: string }[]
   creada: string
 }
 
 export type Mensaje = { id: string; rol: 'usuario' | 'asistente'; texto: string }
+
+export type Nota = { id: string; creado: string; texto: string }
 
 export type UltimoAnalisis = { creado: string; registrosUsados: number; modo: 'ia' | 'demo' }
 
@@ -46,6 +49,7 @@ export type Estado = {
   patrones: Patron[]
   acciones: Accion[]
   chat: Mensaje[]
+  notas: Nota[]
   analisis?: UltimoAnalisis
   consentimiento: boolean
 }
@@ -57,6 +61,7 @@ const ESTADO_INICIAL: Estado = {
   patrones: [],
   acciones: [],
   chat: [],
+  notas: [],
   consentimiento: false,
 }
 

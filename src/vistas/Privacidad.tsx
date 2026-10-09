@@ -19,6 +19,7 @@ function Privacidad({ estado, actualizar }: Props) {
       patrones: [],
       acciones: [],
       chat: [],
+      notas: [],
       analisis: undefined,
       consentimiento: false,
     }))

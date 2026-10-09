@@ -105,6 +105,18 @@ function extraerJson<T>(texto: string): T {
   return JSON.parse(texto.slice(texto.indexOf('{'), texto.lastIndexOf('}') + 1)) as T
 }
 
+async function consultar(config: ConfigIA, system: string, mensajes: Turno[], maxTokens: number): Promise<unknown> {
+  let ultimoError: unknown
+  for (let intento = 0; intento < 2; intento++) {
+    try {
+      return extraerJson(await llamarClaude(config, system, mensajes, maxTokens))
+    } catch (error) {
+      ultimoError = error
+    }
+  }
+  throw ultimoError
+}
+
 export async function procesarSolicitud(
   body: unknown,
   config: ConfigIA,
@@ -115,21 +127,13 @@ export async function procesarSolicitud(
 
   try {
     if (solicitud.tipo === 'analizar') {
-      let ultimoError: unknown
-      for (let intento = 0; intento < 2; intento++) {
-        try {
-          const texto = await llamarClaude(
-            config,
-            SISTEMA_ANALISIS,
-            [{ role: 'user', content: formatearEntradas(solicitud.entradas) }],
-            2500,
-          )
-          return { status: 200, body: { resultado: extraerJson(texto) } }
-        } catch (error) {
-          ultimoError = error
-        }
-      }
-      throw ultimoError
+      const resultado = await consultar(
+        config,
+        SISTEMA_ANALISIS,
+        [{ role: 'user', content: formatearEntradas(solicitud.entradas) }],
+        2500,
+      )
+      return { status: 200, body: { resultado } }
     }
 
     const primerUsuario = solicitud.historial.findIndex((m) => m.rol === 'usuario')
@@ -141,9 +145,17 @@ export async function procesarSolicitud(
       config,
       sistemaChat(formatearEntradas(solicitud.entradas)),
       [...previos, { role: 'user', content: solicitud.mensaje }],
-      600,
+      800,
     )
-    return { status: 200, body: { resultado: extraerJson(texto) } }
+    if (!texto.trim()) throw new Error('Respuesta vacía de la IA')
+    let resultado: unknown
+    try {
+      resultado = extraerJson(texto)
+    } catch {
+      console.error('Respuesta de chat sin JSON, se usa el texto tal cual:', texto.slice(0, 200))
+      resultado = { respuesta: texto.trim(), senalRiesgo: false }
+    }
+    return { status: 200, body: { resultado } }
   } catch (error) {
     console.error('Fallo al consultar la IA:', error)
     return { status: 502, body: { error: 'fallo_ia' } }

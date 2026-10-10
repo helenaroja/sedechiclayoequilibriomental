@@ -1,4 +1,4 @@
-import { procesarSolicitud } from '../server/ai'
+import { procesarSolicitud } from '../server/ai.js'
 
 type Peticion = { method?: string; body?: unknown }
 type Respuesta = { status: (codigo: number) => { json: (cuerpo: unknown) => void } }

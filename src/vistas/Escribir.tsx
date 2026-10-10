@@ -137,6 +137,18 @@ function Escribir({ estado, actualizar, ir }: Props) {
         <p>Puedes contarme qué pasó, cómo te sentiste, qué te preocupó y qué hiciste durante el día.</p>
       </header>
 
+      <section className="tarjeta">
+        <h3>Escribe tu día y explora tu espacio</h3>
+        <div className="acciones">
+          <button type="button" className="btn btn--suave" onClick={() => ir('historial')}>Historial</button>
+          <button type="button" className="btn btn--suave" onClick={() => ir('patrones')}>Tu patrón</button>
+          <button type="button" className="btn btn--suave" onClick={() => ir('ciclo')}>Romper el ciclo</button>
+          <button type="button" className="btn btn--suave" onClick={() => ir('seguimiento')}>Seguimiento</button>
+          <button type="button" className="btn btn--suave" onClick={() => ir('chat')}>Chat</button>
+          <button type="button" className="btn btn--suave" onClick={() => ir('privacidad')}>Mis datos</button>
+        </div>
+      </section>
+
       <BannerRacha registros={registros} compacto />
 
       {ayuda && <AvisoAyuda />}
